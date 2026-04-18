@@ -1,9 +1,13 @@
 package com.translator.lao.ui
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
-import android.speech.SpeechRecognizer
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.AnimationUtils
@@ -12,9 +16,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.chip.Chip
 import com.translator.lao.R
 import com.translator.lao.api.TranslationApi
-import com.translator.lao.data.HistoryStore
+import com.translator.lao.data.Dictionary
+import com.translator.lao.data.DictionaryStore
 import com.translator.lao.databinding.ActivityMainBinding
 import com.translator.lao.speech.SpeechManager
 import kotlinx.coroutines.launch
@@ -24,19 +32,19 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var speechManager: SpeechManager
-    private lateinit var historyStore: HistoryStore
 
-    private var isLaoToChinese = true // true=老挝→中, false=中→老挝
+    // true=离线词典模式, false=在线翻译模式
+    private var isOfflineMode = true
+    // true=老挝→中, false=中→老挝
+    private var isLaoToChinese = true
     private var isListening = false
+    private var selectedCategoryIndex = -1
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            startVoiceInput()
-        } else {
-            showToast("需要麦克风权限才能使用语音输入")
-        }
+        if (granted) startVoiceInput()
+        else showToast(getString(R.string.mic_permission_needed))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,28 +53,43 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         speechManager = SpeechManager(this)
-        historyStore = HistoryStore(this)
-
-        // 恢复上次的翻译方向
-        val (from, to) = historyStore.getLastDirection()
-        isLaoToChinese = from == "lo"
+        speechManager.initTts {}
 
         initUI()
-        initTts()
+        updateNetworkStatus()
     }
+
+    // ==================== UI 初始化 ====================
 
     private fun initUI() {
         updateDirectionUI()
+        updateModeUI()
+        setupModeButtons()
+        setupLanguageSwitch()
+        setupActionButtons()
+        setupCategoryChips()
+        setupRecyclerView()
+    }
 
-        // 翻译按钮
-        binding.btnTranslate.setOnClickListener {
-            val text = binding.etSource.text.toString().trim()
-            if (text.isNotEmpty()) {
-                performTranslation(text)
+    private fun setupModeButtons() {
+        binding.btnOfflineMode.setOnClickListener {
+            if (!isOfflineMode) {
+                isOfflineMode = true
+                updateModeUI()
+                selectedCategoryIndex = -1
+                setupCategoryChips()
+                binding.rvCategoryEntries.visibility = View.GONE
             }
         }
+        binding.btnOnlineMode.setOnClickListener {
+            if (isOfflineMode) {
+                isOfflineMode = false
+                updateModeUI()
+            }
+        }
+    }
 
-        // 语言切换按钮
+    private fun setupLanguageSwitch() {
         binding.btnSwitch.setOnClickListener {
             it.animate()
                 .rotationBy(180f)
@@ -77,7 +100,7 @@ class MainActivity : AppCompatActivity() {
             isLaoToChinese = !isLaoToChinese
             updateDirectionUI()
 
-            // 交换输入输出文本
+            // 交换输入和输出文本
             val sourceText = binding.etSource.text.toString()
             val resultText = binding.tvResult.text.toString()
             if (resultText.isNotEmpty() && resultText != getString(R.string.translating)) {
@@ -85,13 +108,21 @@ class MainActivity : AppCompatActivity() {
                 binding.tvResult.text = sourceText
             }
 
-            historyStore.saveDirection(
-                if (isLaoToChinese) "lo" else "zh",
-                if (isLaoToChinese) "zh" else "lo"
-            )
+            // 刷新分类列表
+            selectedCategoryIndex = -1
+            setupCategoryChips()
+            binding.rvCategoryEntries.visibility = View.GONE
+        }
+    }
+
+    private fun setupActionButtons() {
+        // 翻译按钮
+        binding.btnTranslate.setOnClickListener {
+            val text = binding.etSource.text.toString().trim()
+            if (text.isNotEmpty()) performTranslation(text)
         }
 
-        // 语音输入按钮
+        // 语音按钮
         binding.btnVoice.setOnClickListener {
             if (isListening) {
                 speechManager.stopListening()
@@ -102,43 +133,58 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 朗读结果
+        // 清空按钮
+        binding.btnClear.setOnClickListener {
+            binding.etSource.text?.clear()
+            binding.tvResult.text = ""
+            binding.cardResult.visibility = View.GONE
+        }
+
+        // 复制按钮
+        binding.btnCopy.setOnClickListener {
+            val text = binding.tvResult.text.toString()
+            if (text.isNotEmpty()) {
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("translation", text))
+                showToast(getString(R.string.copy_success))
+            }
+        }
+
+        // 朗读按钮
         binding.btnSpeakResult.setOnClickListener {
             val text = binding.tvResult.text.toString()
             if (text.isNotEmpty() && text != getString(R.string.translating)) {
                 val locale = if (isLaoToChinese) Locale.CHINESE else Locale("lo")
                 speechManager.speak(text, locale)
-                animateButton(it)
-            }
-        }
-
-        // 清空按钮
-        binding.btnClear.setOnClickListener {
-            binding.etSource.text?.clear()
-            binding.tvResult.text = ""
-            binding.tvResult.visibility = View.GONE
-            animateButton(it)
-        }
-
-        // 复制结果
-        binding.btnCopy.setOnClickListener {
-            val text = binding.tvResult.text.toString()
-            if (text.isNotEmpty()) {
-                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(
-                    android.content.ClipData.newPlainText("translation", text)
-                )
-                showToast("已复制到剪贴板")
-                animateButton(it)
             }
         }
     }
 
-    private fun initTts() {
-        speechManager.initTts { success ->
-            if (!success) {
-                showToast("语音合成功能初始化失败")
+    // ==================== 模式 UI 更新 ====================
+
+    private fun updateModeUI() {
+        if (isOfflineMode) {
+            // 离线模式高亮
+            binding.btnOfflineMode.apply {
+                backgroundTintList = ContextCompat.getColorStateList(context, R.color.offline_active)
+                setTextColor(ContextCompat.getColor(context, R.color.text_on_primary))
             }
+            binding.btnOnlineMode.apply {
+                backgroundTintList = ContextCompat.getColorStateList(context, R.color.offline_inactive)
+                setTextColor(ContextCompat.getColor(context, R.color.text_hint))
+            }
+            binding.cardCategories.visibility = View.VISIBLE
+        } else {
+            // 在线模式高亮
+            binding.btnOfflineMode.apply {
+                backgroundTintList = ContextCompat.getColorStateList(context, R.color.offline_inactive)
+                setTextColor(ContextCompat.getColor(context, R.color.text_hint))
+            }
+            binding.btnOnlineMode.apply {
+                backgroundTintList = ContextCompat.getColorStateList(context, R.color.online_active)
+                setTextColor(ContextCompat.getColor(context, R.color.text_on_primary))
+            }
+            binding.cardCategories.visibility = View.GONE
         }
     }
 
@@ -146,23 +192,95 @@ class MainActivity : AppCompatActivity() {
         if (isLaoToChinese) {
             binding.tvSourceLang.text = "🇱🇦 老挝语"
             binding.tvTargetLang.text = "🇨🇳 中文"
-            binding.etSource.hint = "输入老挝语或点击麦克风说话..."
+            binding.etSource.hint = getString(R.string.input_hint_lao)
         } else {
             binding.tvSourceLang.text = "🇨🇳 中文"
             binding.tvTargetLang.text = "🇱🇦 老挝语"
-            binding.etSource.hint = "输入中文或点击麦克风说话..."
+            binding.etSource.hint = getString(R.string.input_hint_zh)
         }
     }
+
+    private fun updateNetworkStatus() {
+        val online = isNetworkAvailable()
+        val dot = binding.networkDot
+        val tv = binding.tvNetworkStatus
+        if (online) {
+            dot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.online_green)
+            tv.text = getString(R.string.network_online)
+            tv.setTextColor(ContextCompat.getColor(this, R.color.online_green))
+        } else {
+            dot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.offline_gray)
+            tv.text = getString(R.string.network_offline)
+            tv.setTextColor(ContextCompat.getColor(this, R.color.offline_gray))
+        }
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    // ==================== 分类词库 ====================
+
+    private fun setupCategoryChips() {
+        val chipGroup = binding.chipGroupCategories
+        chipGroup.removeAllViews()
+
+        val categories = DictionaryStore.getAllCategories()
+        categories.forEachIndexed { index, category ->
+            val chip = Chip(this).apply {
+                text = category.nameZh
+                isCheckable = true
+                isChecked = (index == selectedCategoryIndex)
+                setOnCheckedChangeListener { _, isChecked ->
+                    if (isChecked) {
+                        selectedCategoryIndex = index
+                        // Uncheck other chips
+                        for (i in 0 until chipGroup.childCount) {
+                            (chipGroup.getChildAt(i) as? Chip)?.let { c ->
+                                if (c != this) c.isChecked = false
+                            }
+                        }
+                        showCategoryEntries(category)
+                    } else if (selectedCategoryIndex == index) {
+                        selectedCategoryIndex = -1
+                        binding.rvCategoryEntries.visibility = View.GONE
+                    }
+                }
+            }
+            chipGroup.addView(chip)
+        }
+    }
+
+    private fun setupRecyclerView() {
+        binding.rvCategoryEntries.layoutManager = LinearLayoutManager(this)
+    }
+
+    private fun showCategoryEntries(category: Dictionary.Category) {
+        val entries = DictionaryStore.getCategoryEntries(category, isLaoToChinese)
+        if (entries.isEmpty()) {
+            binding.rvCategoryEntries.visibility = View.GONE
+            return
+        }
+
+        binding.rvCategoryEntries.visibility = View.VISIBLE
+        val adapter = CategoryAdapter(entries)
+        adapter.onItemClick = { (source, _) ->
+            binding.etSource.setText(source)
+            performTranslation(source)
+        }
+        binding.rvCategoryEntries.adapter = adapter
+    }
+
+    // ==================== 语音 ====================
 
     private fun checkPermissionAndListen() {
         when {
             ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED -> {
-                startVoiceInput()
-            }
-            else -> {
-                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
+                == PackageManager.PERMISSION_GRANTED -> startVoiceInput()
+            else -> permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -171,7 +289,6 @@ class MainActivity : AppCompatActivity() {
         updateVoiceButton()
 
         val locale = if (isLaoToChinese) Locale("lo") else Locale.CHINESE
-
         speechManager.startListening(locale, object : SpeechManager.RecognitionCallback {
             override fun onResult(text: String) {
                 runOnUiThread {
@@ -193,13 +310,13 @@ class MainActivity : AppCompatActivity() {
             override fun onBeginOfSpeech() {
                 runOnUiThread {
                     binding.tvListeningHint.visibility = View.VISIBLE
-                    binding.tvListeningHint.text = "正在聆听..."
+                    binding.tvListeningHint.text = getString(R.string.listening)
                 }
             }
 
             override fun onEndOfSpeech() {
                 runOnUiThread {
-                    binding.tvListeningHint.text = "识别中..."
+                    binding.tvListeningHint.text = getString(R.string.recognizing)
                 }
             }
         })
@@ -209,30 +326,46 @@ class MainActivity : AppCompatActivity() {
         if (isListening) {
             binding.btnVoice.setImageResource(R.drawable.ic_mic_off)
             binding.btnVoice.backgroundTintList =
-                android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this, R.color.accent_red)
-                )
-            binding.voiceRipple.visibility = View.VISIBLE
-            binding.voiceRipple.startAnimation(
-                AnimationUtils.loadAnimation(this, R.anim.pulse)
-            )
+                ContextCompat.getColorStateList(this, R.color.accent_red)
         } else {
             binding.btnVoice.setImageResource(R.drawable.ic_mic)
             binding.btnVoice.backgroundTintList =
-                android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this, R.color.primary)
-                )
-            binding.voiceRipple.visibility = View.GONE
-            binding.voiceRipple.clearAnimation()
+                ContextCompat.getColorStateList(this, R.color.primary)
             binding.tvListeningHint.visibility = View.GONE
         }
     }
 
+    // ==================== 翻译 ====================
+
     private fun performTranslation(text: String) {
-        binding.tvResult.visibility = View.VISIBLE
+        binding.cardResult.visibility = View.VISIBLE
         binding.tvResult.text = getString(R.string.translating)
+        binding.tvResult.setTextColor(ContextCompat.getColor(this, R.color.text_body))
         binding.progressBar.visibility = View.VISIBLE
 
+        if (isOfflineMode) {
+            performOfflineTranslation(text)
+        } else {
+            performOnlineTranslation(text)
+        }
+    }
+
+    private fun performOfflineTranslation(text: String) {
+        val results = DictionaryStore.translate(text, isLaoToChinese)
+
+        binding.progressBar.visibility = View.GONE
+
+        if (results.isNotEmpty()) {
+            binding.tvResult.text = results.joinToString("\n")
+            binding.tvResult.alpha = 0f
+            binding.tvResult.animate().alpha(1f).setDuration(300).start()
+        } else {
+            binding.tvResult.text = getString(R.string.no_result)
+            binding.tvResult.setTextColor(ContextCompat.getColor(this, R.color.text_hint))
+        }
+    }
+
+    private fun performOnlineTranslation(text: String) {
         lifecycleScope.launch {
             val result = if (isLaoToChinese) {
                 TranslationApi.laoToChinese(text)
@@ -246,30 +379,14 @@ class MainActivity : AppCompatActivity() {
                 binding.tvResult.text = translated
                 binding.tvResult.alpha = 0f
                 binding.tvResult.animate().alpha(1f).setDuration(300).start()
-
-                // 保存历史
-                historyStore.saveHistory(
-                    text, translated,
-                    if (isLaoToChinese) "lo" else "zh",
-                    if (isLaoToChinese) "zh" else "lo"
-                )
             }.onFailure { error ->
-                binding.tvResult.text = "翻译失败: ${error.message}"
-                binding.tvResult.setTextColor(
-                    ContextCompat.getColor(this@MainActivity, R.color.accent_red)
-                )
+                binding.tvResult.text = "${getString(R.string.translation_failed)}: ${error.message}"
+                binding.tvResult.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_red))
             }
         }
     }
 
-    private fun animateButton(view: View) {
-        view.animate()
-            .scaleX(0.9f).scaleY(0.9f)
-            .setDuration(100)
-            .withEndAction {
-                view.animate().scaleX(1f).scaleY(1f).setDuration(100).start()
-            }.start()
-    }
+    // ==================== 工具方法 ====================
 
     private fun showToast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
