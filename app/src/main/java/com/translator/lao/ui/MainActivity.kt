@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Toast
@@ -50,10 +51,23 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         speechManager = SpeechManager(this)
-        speechManager.initTts {}
 
         initUI()
         updateNetworkStatus()
+
+        // 异步初始化 TTS，失败时提示
+        speechManager.initTts { success ->
+            runOnUiThread {
+                if (!success) {
+                    Log.w("MainActivity", "TTS init failed: ${speechManager.getTtsStatus()}")
+                }
+            }
+        }
+
+        // 检查语音识别可用性
+        if (!speechManager.isRecognitionAvailable()) {
+            Log.w("MainActivity", "Speech recognition not available")
+        }
     }
 
     // ==================== UI 初始化 ====================
@@ -100,11 +114,6 @@ class MainActivity : AppCompatActivity() {
             updateSourceUI()
             showToast("翻译源: Google")
         }
-        binding.btnSrcBing.setOnClickListener {
-            currentSource = TranslationApi.Source.BING
-            updateSourceUI()
-            showToast("翻译源: Bing")
-        }
         binding.btnSrcMyMemory.setOnClickListener {
             currentSource = TranslationApi.Source.MYMEMORY
             updateSourceUI()
@@ -133,7 +142,6 @@ class MainActivity : AppCompatActivity() {
         }
         styleBtn(binding.btnSrcAuto, currentSource == TranslationApi.Source.AUTO, R.color.primary)
         styleBtn(binding.btnSrcGoogle, currentSource == TranslationApi.Source.GOOGLE, R.color.google_blue)
-        styleBtn(binding.btnSrcBing, currentSource == TranslationApi.Source.BING, R.color.bing_green)
         styleBtn(binding.btnSrcMyMemory, currentSource == TranslationApi.Source.MYMEMORY, R.color.mymemory_orange)
         styleBtn(binding.btnSrcLibre, currentSource == TranslationApi.Source.LIBRE, R.color.libre_purple)
     }
@@ -169,6 +177,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnVoice.setOnClickListener {
+            if (!speechManager.isRecognitionAvailable()) {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("语音识别不可用")
+                    .setMessage(speechManager.getRecognitionUnavailableReason())
+                    .setPositiveButton("知道了", null)
+                    .show()
+                return@setOnClickListener
+            }
             if (isListening) {
                 speechManager.stopListening()
                 isListening = false
@@ -196,6 +212,19 @@ class MainActivity : AppCompatActivity() {
         binding.btnSpeakResult.setOnClickListener {
             val text = binding.tvResult.text.toString()
             if (text.isNotEmpty() && text != getString(R.string.translating)) {
+                if (!speechManager.isTtsAvailable()) {
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("语音播报不可用")
+                        .setMessage("当前设备没有可用的语音合成引擎\n\n${speechManager.getTtsStatus()}\n\n建议：复制文字后使用手机自带的朗读功能")
+                        .setPositiveButton("知道了", null)
+                        .setNeutralButton("复制文字") { _, _ ->
+                            val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("translation", text))
+                            showToast("已复制")
+                        }
+                        .show()
+                    return@setOnClickListener
+                }
                 val locale = if (isLaoToChinese) Locale.CHINESE else Locale("lo")
                 speechManager.speak(text, locale)
                 showToast("正在朗读...")
