@@ -37,4 +37,10 @@
     <!-- Network status -->
     <color name="online_green">#4CAF50</color>
     <color name="offline_gray">#9E9E9E</color>
+
+    <!-- Translation source -->
+    <color name="google_blue">#4285F4</color>
+    <color name="bing_green">#00A4EF</color>
+    <color name="source_active">#2E7D32</color>
+    <color name="source_inactive">#BDBDBD</color>
 </resources>
