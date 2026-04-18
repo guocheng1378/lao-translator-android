@@ -11,8 +11,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * 翻译服务 - 支持 Bing / Google / Auto 三种翻译源
- * Auto 模式依次尝试 Google → Bing → LibreTranslate
+ * 翻译服务 - 支持 5 种翻译源：Google / Bing / MyMemory / LibreTranslate / Auto
  */
 object TranslationApi {
 
@@ -23,182 +22,92 @@ object TranslationApi {
 
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
-    enum class Source { AUTO, GOOGLE, BING }
+    enum class Source(val label: String) {
+        AUTO("Auto"),
+        GOOGLE("Google"),
+        BING("Bing"),
+        MYMEMORY("MyMemory"),
+        LIBRE("LibreTranslate")
+    }
 
-    /**
-     * 翻译文本
-     * @param text 要翻译的文本
-     * @param from 源语言代码 (lo=老挝语, zh=中文)
-     * @param to 目标语言代码
-     * @param source 翻译源
-     */
     suspend fun translate(
-        text: String,
-        from: String,
-        to: String,
-        source: Source = Source.AUTO
-    ): Result<String> {
-        return withContext(Dispatchers.IO) {
-            try {
-                when (source) {
-                    Source.GOOGLE -> translateGoogle(text, from, to)
-                    Source.BING -> translateBing(text, from, to)
-                    Source.AUTO -> translateAuto(text, from, to)
-                }
-            } catch (e: Exception) {
-                Result.failure(e)
+        text: String, from: String, to: String, source: Source = Source.AUTO
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            when (source) {
+                Source.GOOGLE -> translateGoogle(text, from, to)
+                Source.BING -> translateBing(text, from, to)
+                Source.MYMEMORY -> translateMyMemory(text, from, to)
+                Source.LIBRE -> translateLibre(text, from, to)
+                Source.AUTO -> translateAuto(text, from, to)
             }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
-    /**
-     * Auto 模式：依次尝试 Google → Bing → LibreTranslate
-     */
+    /** Auto: Google → Bing → MyMemory → Libre */
     private fun translateAuto(text: String, from: String, to: String): Result<String> {
-        // 尝试 Google
-        val google = translateGoogleSync(text, from, to)
-        if (google.isSuccess) return google
-
-        // 尝试 Bing
-        val bing = translateBingSync(text, from, to)
-        if (bing.isSuccess) return bing
-
-        // 尝试 LibreTranslate
-        val libre = translateLibreSync(text, from, to)
-        if (libre.isSuccess) return libre
-
+        translateGoogle(text, from, to).onSuccess { return Result.success(it) }
+        translateBing(text, from, to).onSuccess { return Result.success(it) }
+        translateMyMemory(text, from, to).onSuccess { return Result.success(it) }
+        translateLibre(text, from, to).onSuccess { return Result.success(it) }
         return Result.failure(Exception("所有翻译源均失败"))
     }
 
-    // ========== Google 翻译 ==========
+    // ========== Google ==========
+    private fun translateGoogle(text: String, from: String, to: String): Result<String> = try {
+        val sl = if (from == "lo") "lo" else "zh-CN"
+        val tl = if (to == "lo") "lo" else "zh-CN"
+        val url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=$sl&tl=$tl&dt=t&q=${java.net.URLEncoder.encode(text, "UTF-8")}"
+        val resp = client.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").get().build()).execute()
+        val body = resp.body?.string() ?: ""
+        if (resp.isSuccessful && body.isNotEmpty()) {
+            val arr = JSONArray(body).getJSONArray(0)
+            val sb = StringBuilder()
+            for (i in 0 until arr.length()) sb.append(arr.getJSONArray(i).getString(0))
+            Result.success(sb.toString())
+        } else Result.failure(Exception("Google: HTTP ${resp.code}"))
+    } catch (e: Exception) { Result.failure(Exception("Google: ${e.message}")) }
 
-    /**
-     * Google Translate（免费非官方接口）
-     */
-    private fun translateGoogle(text: String, from: String, to: String): Result<String> {
-        return translateGoogleSync(text, from, to)
-    }
+    // ========== Bing ==========
+    private fun translateBing(text: String, from: String, to: String): Result<String> = try {
+        val fromCode = if (from == "lo") "lo" else "zh-Hans"
+        val toCode = if (to == "lo") "lo" else "zh-Hans"
+        val body = JSONArray().put(JSONObject().put("Text", text)).toString()
+        val resp = client.newCall(Request.Builder()
+            .url("https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&from=$fromCode&to=$toCode")
+            .header("Content-Type", "application/json").post(body.toRequestBody(JSON_TYPE)).build()).execute()
+        val rb = resp.body?.string() ?: ""
+        if (resp.isSuccessful && rb.isNotEmpty()) {
+            Result.success(JSONArray(rb).getJSONObject(0).getJSONArray("translations").getJSONObject(0).getString("text"))
+        } else Result.failure(Exception("Bing: HTTP ${resp.code}"))
+    } catch (e: Exception) { Result.failure(Exception("Bing: ${e.message}")) }
 
-    private fun translateGoogleSync(text: String, from: String, to: String): Result<String> {
-        return try {
-            val sl = if (from == "lo") "lo" else "zh-CN"
-            val tl = if (to == "lo") "lo" else "zh-CN"
-            val encoded = java.net.URLEncoder.encode(text, "UTF-8")
+    // ========== MyMemory ==========
+    private fun translateMyMemory(text: String, from: String, to: String): Result<String> = try {
+        val url = "https://api.mymemory.translated.net/get?q=${java.net.URLEncoder.encode(text, "UTF-8")}&langpair=$from|$to"
+        val resp = client.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").get().build()).execute()
+        val rb = resp.body?.string() ?: ""
+        if (resp.isSuccessful && rb.isNotEmpty()) {
+            val json = JSONObject(rb)
+            if (json.getInt("responseStatus") == 200)
+                Result.success(json.getJSONObject("responseData").getString("translatedText"))
+            else Result.failure(Exception("MyMemory: ${json.optString("responseDetails")}"))
+        } else Result.failure(Exception("MyMemory: HTTP ${resp.code}"))
+    } catch (e: Exception) { Result.failure(Exception("MyMemory: ${e.message}")) }
 
-            val url = "https://translate.googleapis.com/translate_a/single?" +
-                    "client=gtx&sl=$sl&tl=$tl&dt=t&q=$encoded"
-
-            val request = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0")
-                .get()
-                .build()
-
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
-
-            if (response.isSuccessful && body.isNotEmpty()) {
-                // 响应格式: [[["翻译结果","原文",null,null,N],...],null,"zh-CN"]
-                val json = JSONArray(body)
-                val sentences = json.getJSONArray(0)
-                val result = StringBuilder()
-                for (i in 0 until sentences.length()) {
-                    val sentence = sentences.getJSONArray(i)
-                    result.append(sentence.getString(0))
-                }
-                Result.success(result.toString())
-            } else {
-                Result.failure(Exception("Google翻译失败: HTTP ${response.code}"))
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("Google翻译异常: ${e.message}"))
-        }
-    }
-
-    // ========== Bing 翻译 ==========
-
-    /**
-     * Bing/Microsoft Translator（免费非官方接口）
-     */
-    private fun translateBing(text: String, from: String, to: String): Result<String> {
-        return translateBingSync(text, from, to)
-    }
-
-    private fun translateBingSync(text: String, from: String, to: String): Result<String> {
-        return try {
-            val fromCode = if (from == "lo") "lo" else "zh-Hans"
-            val toCode = if (to == "lo") "lo" else "zh-Hans"
-
-            // 使用 Bing Translator 的免费 API
-            val url = "https://api.cognitive.microsofttranslator.com/translate" +
-                    "?api-version=3.0&from=$fromCode&to=$toCode"
-
-            val jsonBody = JSONArray().put(JSONObject().put("Text", text))
-
-            val request = Request.Builder()
-                .url(url)
-                .header("Content-Type", "application/json")
-                .header("User-Agent", "Mozilla/5.0")
-                .post(jsonBody.toString().toRequestBody(JSON_TYPE))
-                .build()
-
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
-
-            if (response.isSuccessful && body.isNotEmpty()) {
-                val json = JSONArray(body)
-                val translations = json.getJSONObject(0)
-                    .getJSONArray("translations")
-                val result = translations.getJSONObject(0).getString("text")
-                Result.success(result)
-            } else {
-                Result.failure(Exception("Bing翻译失败: HTTP ${response.code}"))
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("Bing翻译异常: ${e.message}"))
-        }
-    }
-
-    // ========== LibreTranslate 备用 ==========
-
-    private fun translateLibreSync(text: String, from: String, to: String): Result<String> {
-        return try {
-            val fromCode = if (from == "lo") "lo" else "zh"
-            val toCode = if (to == "lo") "lo" else "zh"
-
-            val jsonBody = JSONObject()
-                .put("q", text)
-                .put("source", fromCode)
-                .put("target", toCode)
-
-            val request = Request.Builder()
-                .url("https://libretranslate.com/translate")
-                .header("Content-Type", "application/json")
-                .post(jsonBody.toString().toRequestBody(JSON_TYPE))
-                .build()
-
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
-
-            if (response.isSuccessful && body.isNotEmpty()) {
-                val json = JSONObject(body)
-                val result = json.getString("translatedText")
-                Result.success(result)
-            } else {
-                Result.failure(Exception("LibreTranslate失败: HTTP ${response.code}"))
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("LibreTranslate异常: ${e.message}"))
-        }
-    }
+    // ========== LibreTranslate ==========
+    private fun translateLibre(text: String, from: String, to: String): Result<String> = try {
+        val body = JSONObject().put("q", text).put("source", if (from == "lo") "lo" else "zh").put("target", if (to == "lo") "lo" else "zh").toString()
+        val resp = client.newCall(Request.Builder().url("https://libretranslate.com/translate")
+            .header("Content-Type", "application/json").post(body.toRequestBody(JSON_TYPE)).build()).execute()
+        val rb = resp.body?.string() ?: ""
+        if (resp.isSuccessful && rb.isNotEmpty()) Result.success(JSONObject(rb).getString("translatedText"))
+        else Result.failure(Exception("Libre: HTTP ${resp.code}"))
+    } catch (e: Exception) { Result.failure(Exception("Libre: ${e.message}")) }
 
     // ========== 快捷方法 ==========
-
-    suspend fun laoToChinese(text: String, source: Source = Source.AUTO): Result<String> {
-        return translate(text, "lo", "zh", source)
-    }
-
-    suspend fun chineseToLao(text: String, source: Source = Source.AUTO): Result<String> {
-        return translate(text, "zh", "lo", source)
-    }
+    suspend fun laoToChinese(text: String, source: Source = Source.AUTO) = translate(text, "lo", "zh", source)
+    suspend fun chineseToLao(text: String, source: Source = Source.AUTO) = translate(text, "zh", "lo", source)
 }
