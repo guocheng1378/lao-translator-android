@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">老挝语翻译器</string>
-    <string name="translating">翻译中...</string>
+    <string name="translating">翻译中…</string>
+    <string name="translate">翻译</string>
+    <string name="copy_success">已复制到剪贴板</string>
+    <string name="mic_permission_needed">需要麦克风权限才能使用语音输入</string>
+    <string name="tts_init_failed">语音合成功能初始化失败</string>
+    <string name="listening">正在聆听…</string>
+    <string name="recognizing">识别中…</string>
+    <string name="offline_mode">离线词典</string>
+    <string name="online_mode">在线翻译</string>
+    <string name="network_online">已联网</string>
+    <string name="network_offline">未联网</string>
+    <string name="input_hint_lao">输入老挝语或点击麦克风…</string>
+    <string name="input_hint_zh">输入中文或点击麦克风…</string>
+    <string name="powered_by">Powered by MyMemory API</string>
+    <string name="no_result">未找到匹配结果</string>
+    <string name="translation_failed">翻译失败</string>
 </resources>
