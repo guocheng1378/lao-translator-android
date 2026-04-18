@@ -102,59 +102,89 @@
                 </LinearLayout>
 
                 <!-- 翻译源切换（在线模式显示） -->
-                <LinearLayout
+                <HorizontalScrollView
                     android:id="@+id/layoutSourceSelector"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:gravity="center"
-                    android:orientation="horizontal"
-                    android:paddingHorizontal="4dp"
+                    android:scrollbars="none"
                     android:visibility="gone">
 
-                    <TextView
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="翻译源:"
-                        android:textColor="@color/text_hint"
-                        android:textSize="12sp" />
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="4dp">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSrcGoogle"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:layout_marginStart="8dp"
-                        android:text="Google"
-                        android:textSize="11sp"
-                        app:cornerRadius="16dp"
-                        app:strokeColor="@color/google_blue"
-                        app:strokeWidth="1.5dp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="翻译源:"
+                            android:textColor="@color/text_hint"
+                            android:textSize="12sp" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSrcBing"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:layout_marginStart="6dp"
-                        android:text="Bing"
-                        android:textSize="11sp"
-                        app:cornerRadius="16dp"
-                        app:strokeColor="@color/bing_green"
-                        app:strokeWidth="1.5dp" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSrcAuto"
+                            style="@style/Widget.MaterialComponents.Button"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="6dp"
+                            android:text="Auto"
+                            android:textColor="@color/text_on_primary"
+                            android:textSize="11sp"
+                            app:backgroundTint="@color/primary"
+                            app:cornerRadius="16dp" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnSrcAuto"
-                        style="@style/Widget.MaterialComponents.Button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:layout_marginStart="6dp"
-                        android:text="Auto"
-                        android:textColor="@color/text_on_primary"
-                        android:textSize="11sp"
-                        app:backgroundTint="@color/primary"
-                        app:cornerRadius="16dp" />
-                </LinearLayout>
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSrcGoogle"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="6dp"
+                            android:text="Google"
+                            android:textSize="11sp"
+                            app:cornerRadius="16dp"
+                            app:strokeColor="@color/google_blue"
+                            app:strokeWidth="1.5dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSrcBing"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="6dp"
+                            android:text="Bing"
+                            android:textSize="11sp"
+                            app:cornerRadius="16dp"
+                            app:strokeColor="@color/bing_green"
+                            app:strokeWidth="1.5dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSrcMyMemory"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="6dp"
+                            android:text="MyMemory"
+                            android:textSize="10sp"
+                            app:cornerRadius="16dp"
+                            app:strokeColor="@color/mymemory_orange"
+                            app:strokeWidth="1.5dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSrcLibre"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="6dp"
+                            android:text="Libre"
+                            android:textSize="11sp"
+                            app:cornerRadius="16dp"
+                            app:strokeColor="@color/libre_purple"
+                            app:strokeWidth="1.5dp" />
+                    </LinearLayout>
+                </HorizontalScrollView>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
