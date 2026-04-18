@@ -90,6 +90,11 @@ class MainActivity : AppCompatActivity() {
     private fun setupSourceButtons() {
         updateSourceUI()
 
+        binding.btnSrcAuto.setOnClickListener {
+            currentSource = TranslationApi.Source.AUTO
+            updateSourceUI()
+            showToast("翻译源: Auto (自动选择)")
+        }
         binding.btnSrcGoogle.setOnClickListener {
             currentSource = TranslationApi.Source.GOOGLE
             updateSourceUI()
@@ -100,10 +105,15 @@ class MainActivity : AppCompatActivity() {
             updateSourceUI()
             showToast("翻译源: Bing")
         }
-        binding.btnSrcAuto.setOnClickListener {
-            currentSource = TranslationApi.Source.AUTO
+        binding.btnSrcMyMemory.setOnClickListener {
+            currentSource = TranslationApi.Source.MYMEMORY
             updateSourceUI()
-            showToast("翻译源: Auto (自动选择)")
+            showToast("翻译源: MyMemory")
+        }
+        binding.btnSrcLibre.setOnClickListener {
+            currentSource = TranslationApi.Source.LIBRE
+            updateSourceUI()
+            showToast("翻译源: LibreTranslate")
         }
     }
 
@@ -121,9 +131,11 @@ class MainActivity : AppCompatActivity() {
                 btn.strokeColor = ContextCompat.getColorStateList(this, activeColor)
             }
         }
+        styleBtn(binding.btnSrcAuto, currentSource == TranslationApi.Source.AUTO, R.color.primary)
         styleBtn(binding.btnSrcGoogle, currentSource == TranslationApi.Source.GOOGLE, R.color.google_blue)
         styleBtn(binding.btnSrcBing, currentSource == TranslationApi.Source.BING, R.color.bing_green)
-        styleBtn(binding.btnSrcAuto, currentSource == TranslationApi.Source.AUTO, R.color.primary)
+        styleBtn(binding.btnSrcMyMemory, currentSource == TranslationApi.Source.MYMEMORY, R.color.mymemory_orange)
+        styleBtn(binding.btnSrcLibre, currentSource == TranslationApi.Source.LIBRE, R.color.libre_purple)
     }
 
     private fun setupLanguageSwitch() {
