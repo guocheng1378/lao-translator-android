@@ -1,17 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#1565C0</color>
-    <color name="primary_dark">#0D47A1</color>
-    <color name="primary_light">#E3F2FD</color>
-    <color name="accent">#FF6D00</color>
-    <color name="accent_red">#E53935</color>
+    <!-- Laos flag green theme -->
+    <color name="primary">#2E7D32</color>
+    <color name="primary_dark">#1B5E20</color>
+    <color name="primary_light">#C8E6C9</color>
+    <color name="primary_surface">#E8F5E9</color>
+    <color name="accent">#C62828</color>
+    <color name="accent_red">#D32F2F</color>
+    <color name="accent_blue">#1565C0</color>
+    <color name="accent_orange">#EF6C00</color>
 
-    <color name="background">#F5F5F5</color>
+    <color name="background">#F1F8E9</color>
     <color name="surface">#FFFFFF</color>
+    <color name="surface_variant">#F5F5F5</color>
 
-    <color name="text_primary">#212121</color>
-    <color name="text_secondary">#757575</color>
-    <color name="text_hint">#BDBDBD</color>
+    <color name="text_primary">#1B5E20</color>
+    <color name="text_secondary">#558B2F</color>
+    <color name="text_hint">#9E9E9E</color>
+    <color name="text_on_primary">#FFFFFF</color>
+    <color name="text_body">#212121</color>
 
-    <color name="divider">#E0E0E0</color>
+    <color name="divider">#C8E6C9</color>
+
+    <!-- Mode switch colors -->
+    <color name="offline_active">#2E7D32</color>
+    <color name="offline_inactive">#E8F5E9</color>
+    <color name="online_active">#1565C0</color>
+    <color name="online_inactive">#E3F2FD</color>
+
+    <!-- Category chip colors -->
+    <color name="chip_bg">#E8F5E9</color>
+    <color name="chip_text">#2E7D32</color>
+    <color name="chip_bg_selected">#2E7D32</color>
+    <color name="chip_text_selected">#FFFFFF</color>
+
+    <!-- Network status -->
+    <color name="online_green">#4CAF50</color>
+    <color name="offline_gray">#9E9E9E</color>
 </resources>
