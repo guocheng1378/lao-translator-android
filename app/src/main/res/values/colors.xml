@@ -41,6 +41,8 @@
     <!-- Translation source -->
     <color name="google_blue">#4285F4</color>
     <color name="bing_green">#00A4EF</color>
+    <color name="mymemory_orange">#FF6D00</color>
+    <color name="libre_purple">#7B1FA2</color>
     <color name="source_active">#2E7D32</color>
     <color name="source_inactive">#BDBDBD</color>
 </resources>
