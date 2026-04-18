@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background"
@@ -31,7 +30,7 @@
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
-            <!-- 网络状态指示器 -->
+            <!-- 网络状态 -->
             <LinearLayout
                 android:id="@+id/networkIndicator"
                 android:layout_width="wrap_content"
@@ -70,40 +69,96 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
+                android:orientation="vertical"
                 android:padding="4dp">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnOfflineMode"
-                    style="@style/Widget.MaterialComponents.Button"
-                    android:layout_width="0dp"
-                    android:layout_height="42dp"
-                    android:layout_weight="1"
-                    android:text="📖 离线词典"
-                    android:textSize="13sp"
-                    app:backgroundTint="@color/offline_active"
-                    app:cornerRadius="10dp"
-                    app:strokeColor="@color/primary"
-                    app:strokeWidth="0dp" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnOnlineMode"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="42dp"
-                    android:layout_marginStart="4dp"
-                    android:layout_weight="1"
-                    android:text="🌐 在线翻译"
-                    android:textColor="@color/text_hint"
-                    android:textSize="13sp"
-                    app:backgroundTint="@color/offline_inactive"
-                    app:cornerRadius="10dp"
-                    app:strokeColor="@color/divider"
-                    app:strokeWidth="1dp" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnOfflineMode"
+                        style="@style/Widget.MaterialComponents.Button"
+                        android:layout_width="0dp"
+                        android:layout_height="42dp"
+                        android:layout_weight="1"
+                        android:text="📖 离线词典"
+                        android:textSize="13sp"
+                        app:backgroundTint="@color/offline_active"
+                        app:cornerRadius="10dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnOnlineMode"
+                        style="@style/Widget.MaterialComponents.Button"
+                        android:layout_width="0dp"
+                        android:layout_height="42dp"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:text="🌐 在线翻译"
+                        android:textSize="13sp"
+                        app:backgroundTint="@color/offline_inactive"
+                        app:cornerRadius="10dp" />
+                </LinearLayout>
+
+                <!-- 翻译源切换（在线模式显示） -->
+                <LinearLayout
+                    android:id="@+id/layoutSourceSelector"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="4dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="翻译源:"
+                        android:textColor="@color/text_hint"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSrcGoogle"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:text="Google"
+                        android:textSize="11sp"
+                        app:cornerRadius="16dp"
+                        app:strokeColor="@color/google_blue"
+                        app:strokeWidth="1.5dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSrcBing"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="6dp"
+                        android:text="Bing"
+                        android:textSize="11sp"
+                        app:cornerRadius="16dp"
+                        app:strokeColor="@color/bing_green"
+                        app:strokeWidth="1.5dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSrcAuto"
+                        style="@style/Widget.MaterialComponents.Button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="6dp"
+                        android:text="Auto"
+                        android:textColor="@color/text_on_primary"
+                        android:textSize="11sp"
+                        app:backgroundTint="@color/primary"
+                        app:cornerRadius="16dp" />
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 语言方向切换 ===== -->
+        <!-- ===== 语言方向 ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -140,8 +195,7 @@
                     android:text="⇄"
                     android:textSize="20sp"
                     app:backgroundTint="@color/primary_light"
-                    app:cornerRadius="23dp"
-                    app:tint="@color/primary" />
+                    app:cornerRadius="23dp" />
 
                 <TextView
                     android:id="@+id/tvTargetLang"
@@ -176,7 +230,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:background="@null"
-                    android:hint="输入老挝语或点击麦克风…"
+                    android:hint="输入文字或点击🎤说话…"
                     android:inputType="textMultiLine"
                     android:minHeight="72dp"
                     android:textColor="@color/text_body"
@@ -190,15 +244,15 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <!-- 语音按钮 -->
+                    <!-- 🎤 麦克风按钮 -->
                     <ImageButton
                         android:id="@+id/btnVoice"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
                         android:background="@drawable/bg_circle"
                         android:backgroundTint="@color/primary"
                         android:contentDescription="语音输入"
-                        android:padding="10dp"
+                        android:padding="12dp"
                         android:src="@drawable/ic_mic"
                         app:tint="@android:color/white" />
 
@@ -217,18 +271,18 @@
                         android:layout_height="0dp"
                         android:layout_weight="1" />
 
-                    <!-- 清空按钮 -->
+                    <!-- 清空 -->
                     <ImageButton
                         android:id="@+id/btnClear"
-                        android:layout_width="38dp"
-                        android:layout_height="38dp"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="清空"
-                        android:padding="7dp"
+                        android:padding="8dp"
                         android:src="@drawable/ic_clear"
                         app:tint="@color/text_hint" />
 
-                    <!-- 翻译按钮 -->
+                    <!-- 翻译 -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnTranslate"
                         android:layout_width="wrap_content"
@@ -277,7 +331,6 @@
                     android:textColor="@color/text_body"
                     android:textSize="17sp" />
 
-                <!-- 结果操作按钮 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -285,31 +338,33 @@
                     android:gravity="end"
                     android:orientation="horizontal">
 
+                    <!-- 复制 -->
                     <ImageButton
                         android:id="@+id/btnCopy"
-                        android:layout_width="38dp"
-                        android:layout_height="38dp"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="复制"
-                        android:padding="7dp"
+                        android:padding="8dp"
                         android:src="@drawable/ic_copy"
                         app:tint="@color/text_hint" />
 
+                    <!-- 🔊 朗读按钮 -->
                     <ImageButton
                         android:id="@+id/btnSpeakResult"
-                        android:layout_width="38dp"
-                        android:layout_height="38dp"
-                        android:layout_marginStart="2dp"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="4dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="朗读"
-                        android:padding="7dp"
+                        android:padding="8dp"
                         android:src="@drawable/ic_speaker"
-                        app:tint="@color/text_hint" />
+                        app:tint="@color/primary" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 分类词库浏览（离线模式可见） ===== -->
+        <!-- ===== 分类词库 ===== -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardCategories"
             android:layout_width="match_parent"
@@ -333,7 +388,6 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
-                <!-- 分类标签行 -->
                 <HorizontalScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -347,7 +401,6 @@
                         app:singleLine="true" />
                 </HorizontalScrollView>
 
-                <!-- 分类词条列表 -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/rvCategoryEntries"
                     android:layout_width="match_parent"
@@ -358,13 +411,12 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 底部提示 ===== -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:gravity="center"
-            android:text="离线词典无需联网 · 在线翻译由 MyMemory 提供"
+            android:text="离线词典无需联网 · 在线翻译支持 Google / Bing / Auto"
             android:textColor="@color/text_hint"
             android:textSize="11sp" />
 
