@@ -31,11 +31,13 @@
 
             <ImageButton
                 android:id="@+id/btnSpeakSource"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@android:drawable/ic_lock_silent_mode_off"
-                android:contentDescription="朗读" />
+                android:src="@drawable/ic_speaker"
+                android:contentDescription="朗读"
+                android:padding="6dp"
+                app:tint="@color/primary" />
         </LinearLayout>
 
         <LinearLayout
@@ -55,11 +57,13 @@
 
             <ImageButton
                 android:id="@+id/btnSpeakTarget"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@android:drawable/ic_lock_silent_mode_off"
-                android:contentDescription="朗读" />
+                android:src="@drawable/ic_speaker"
+                android:contentDescription="朗读"
+                android:padding="6dp"
+                app:tint="@color/text_hint" />
         </LinearLayout>
 
         <LinearLayout
