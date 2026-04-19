@@ -54,7 +54,7 @@ class OcrTranslateActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) openCamera()
-        else showToast("需要相机权限才能拍照翻译")
+        else showToast(getString(R.string.ocr_camera_permission))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -110,13 +110,13 @@ class OcrTranslateActivity : AppCompatActivity() {
             if (text.isNotEmpty()) {
                 val cb = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                 cb.setPrimaryClip(ClipData.newPlainText("ocr", text))
-                showToast("已复制")
+                showToast(getString(R.string.copied))
             }
         }
     }
 
     private fun updateDirectionUI() {
-        binding.tvDirection.text = if (isLaoToChinese) "老挝语 → 中文" else "中文 → 老挝语"
+        binding.tvDirection.text = if (isLaoToChinese) getString(R.string.ocr_direction_lao_zh) else getString(R.string.ocr_direction_zh_lao)
     }
 
     private fun updateModeUI() {
@@ -147,7 +147,7 @@ class OcrTranslateActivity : AppCompatActivity() {
         binding.progressBar.visibility = View.VISIBLE
         binding.ivPreview.setImageURI(uri)
         binding.ivPreview.visibility = View.VISIBLE
-        binding.tvOcrResult.text = "正在识别文字..."
+        binding.tvOcrResult.text = getString(R.string.ocr_recognizing)
         binding.tvTranslationResult.text = ""
         binding.cardTranslation.visibility = View.GONE
 
@@ -157,7 +157,7 @@ class OcrTranslateActivity : AppCompatActivity() {
                     contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
                 }
                 if (bitmap == null) {
-                    binding.tvOcrResult.text = "无法加载图片"
+                    binding.tvOcrResult.text = getString(R.string.ocr_image_load_failed)
                     binding.progressBar.visibility = View.GONE
                     return@launch
                 }
@@ -170,7 +170,7 @@ class OcrTranslateActivity : AppCompatActivity() {
                         binding.progressBar.visibility = View.GONE
                         val text = visionText.text
                         if (text.isBlank()) {
-                            binding.tvOcrResult.text = "未识别到文字"
+                            binding.tvOcrResult.text = getString(R.string.ocr_no_text)
                         } else {
                             binding.tvOcrResult.text = text
                             performTranslation(text)
@@ -178,19 +178,19 @@ class OcrTranslateActivity : AppCompatActivity() {
                     }
                     .addOnFailureListener { e ->
                         binding.progressBar.visibility = View.GONE
-                        binding.tvOcrResult.text = "识别失败：${e.message}"
+                        binding.tvOcrResult.text = getString(R.string.ocr_recognize_failed) + "：${e.message}"
                         Log.e("OcrTranslate", "OCR failed", e)
                     }
             } catch (e: Exception) {
                 binding.progressBar.visibility = View.GONE
-                binding.tvOcrResult.text = "图片处理失败：${e.message}"
+                binding.tvOcrResult.text = getString(R.string.ocr_image_process_failed) + "：${e.message}"
             }
         }
     }
 
     private fun performTranslation(text: String) {
         binding.cardTranslation.visibility = View.VISIBLE
-        binding.tvTranslationResult.text = "正在翻译..."
+        binding.tvTranslationResult.text = getString(R.string.ocr_translating)
         binding.progressBar.visibility = View.VISIBLE
 
         if (isOfflineMode) {
@@ -200,7 +200,7 @@ class OcrTranslateActivity : AppCompatActivity() {
             if (results.isNotEmpty()) {
                 binding.tvTranslationResult.text = results.joinToString("\n")
             } else {
-                binding.tvTranslationResult.text = "离线词典未找到结果，可尝试在线翻译"
+                binding.tvTranslationResult.text = getString(R.string.ocr_offline_result_empty)
             }
         } else {
             // 在线翻译
@@ -211,7 +211,7 @@ class OcrTranslateActivity : AppCompatActivity() {
                 }
                 binding.progressBar.visibility = View.GONE
                 result.onSuccess { binding.tvTranslationResult.text = it }
-                    .onFailure { binding.tvTranslationResult.text = "翻译失败：${it.message}" }
+                    .onFailure { binding.tvTranslationResult.text = getString(R.string.no_result_online) + "：${it.message}" }
             }
         }
     }
