@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startVoiceInput()
-        else showToast("需要麦克风权限才能语音输入")
+        else showToast(getString(R.string.mic_permission_needed))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,15 +119,25 @@ class MainActivity : AppCompatActivity() {
     private fun setupSourceButtons() {
         updateSourceUI()
 
-        binding.btnSrcGoogle.setOnClickListener {
-            currentSource = TranslationApi.Source.GOOGLE
-            updateSourceUI()
-            showToast("翻译源: Google")
-        }
         binding.btnSrcMyMemory.setOnClickListener {
             currentSource = TranslationApi.Source.MYMEMORY
             updateSourceUI()
-            showToast("翻译源: MyMemory")
+            showToast(getString(R.string.source_changed, "MyMemory"))
+        }
+        binding.btnSrcGoogle.setOnClickListener {
+            currentSource = TranslationApi.Source.GOOGLE
+            updateSourceUI()
+            showToast(getString(R.string.source_changed, "Google"))
+        }
+        binding.btnSrcBing.setOnClickListener {
+            currentSource = TranslationApi.Source.BING
+            updateSourceUI()
+            showToast(getString(R.string.source_changed, "Bing"))
+        }
+        binding.btnSrcLibre.setOnClickListener {
+            currentSource = TranslationApi.Source.LIBRE
+            updateSourceUI()
+            showToast(getString(R.string.source_changed, "LibreTranslate"))
         }
     }
 
@@ -145,8 +155,10 @@ class MainActivity : AppCompatActivity() {
                 btn.strokeColor = ContextCompat.getColorStateList(this, activeColor)
             }
         }
-        styleBtn(binding.btnSrcGoogle, currentSource == TranslationApi.Source.GOOGLE, R.color.google_blue)
         styleBtn(binding.btnSrcMyMemory, currentSource == TranslationApi.Source.MYMEMORY, R.color.mymemory_orange)
+        styleBtn(binding.btnSrcGoogle, currentSource == TranslationApi.Source.GOOGLE, R.color.google_blue)
+        styleBtn(binding.btnSrcBing, currentSource == TranslationApi.Source.BING, R.color.bing_green)
+        styleBtn(binding.btnSrcLibre, currentSource == TranslationApi.Source.LIBRE, R.color.libre_purple)
     }
 
     private fun setupLanguageSwitch() {
@@ -225,6 +237,7 @@ class MainActivity : AppCompatActivity() {
             binding.etSource.text?.clear()
             binding.tvResult.text = ""
             binding.cardResult.visibility = View.GONE
+            binding.tvEmptyStateHint.visibility = View.VISIBLE
             lastSourceText = ""
             lastResultText = ""
         }
@@ -234,7 +247,7 @@ class MainActivity : AppCompatActivity() {
             if (text.isNotEmpty()) {
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("translation", text))
-                showToast("已复制")
+                showToast(getString(R.string.copied))
             }
         }
 
@@ -247,12 +260,12 @@ class MainActivity : AppCompatActivity() {
                     favoritesStore.removeFavorite(lastSourceText, lastResultText)
                     binding.btnFavoriteResult.setImageResource(R.drawable.ic_star)
                     binding.btnFavoriteResult.imageTintList = ContextCompat.getColorStateList(this, R.color.text_hint)
-                    showToast("已取消收藏")
+                    showToast(getString(R.string.unfavorited))
                 } else {
                     favoritesStore.addFavorite(lastSourceText, lastResultText, fromLang, toLang)
                     binding.btnFavoriteResult.setImageResource(R.drawable.ic_star_filled)
                     binding.btnFavoriteResult.imageTintList = null
-                    showToast("已收藏")
+                    showToast(getString(R.string.favorited))
                 }
             }
         }
@@ -272,12 +285,12 @@ class MainActivity : AppCompatActivity() {
                         .setNeutralButton("复制文字") { _, _ ->
                             val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("translation", text))
-                            showToast("已复制")
+                            showToast(getString(R.string.copied))
                         }
                         .show()
                     return@setOnClickListener
                 }
-                showToast("正在朗读...")
+                showToast(getString(R.string.tts_speaking))
                 lifecycleScope.launch {
                     val ttsLocale = if (isLaoToChinese) Locale.CHINESE else Locale("lo")
                     speechManager.speak(text, locale = ttsLocale, callback = object : SpeechManager.TtsCallback {
@@ -285,7 +298,7 @@ class MainActivity : AppCompatActivity() {
                             Log.d("MainActivity", "TTS playback complete")
                         }
                         override fun onError(error: String) {
-                            showToast("播报失败：$error")
+                            showToast(getString(R.string.tts_failed_prefix) + error)
                         }
                     })
                 }
@@ -323,12 +336,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateDirectionUI() {
         if (isLaoToChinese) {
-            binding.tvSourceLang.text = "🇱🇦 老挝语"
-            binding.tvTargetLang.text = "🇨🇳 中文"
-            binding.etSource.hint = "输入老挝语或点击🎤说话..."
+            binding.tvSourceLang.text = getString(R.string.source_lang_lao)
+            binding.tvTargetLang.text = getString(R.string.target_lang_zh)
+            binding.etSource.hint = getString(R.string.input_hint)
         } else {
-            binding.tvSourceLang.text = "🇨🇳 中文"
-            binding.tvTargetLang.text = "🇱🇦 老挝语"
+            binding.tvSourceLang.text = getString(R.string.source_lang_zh)
+            binding.tvTargetLang.text = getString(R.string.target_lang_lao)
             binding.etSource.hint = "输入中文或点击🎤说话..."
         }
     }
@@ -337,11 +350,11 @@ class MainActivity : AppCompatActivity() {
         val online = isNetworkAvailable()
         if (online) {
             binding.networkDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.online_green)
-            binding.tvNetworkStatus.text = "在线"
+            binding.tvNetworkStatus.text = getString(R.string.network_online)
             binding.tvNetworkStatus.setTextColor(ContextCompat.getColor(this, R.color.online_green))
         } else {
             binding.networkDot.backgroundTintList = ContextCompat.getColorStateList(this, R.color.offline_gray)
-            binding.tvNetworkStatus.text = "离线"
+            binding.tvNetworkStatus.text = getString(R.string.network_offline)
             binding.tvNetworkStatus.setTextColor(ContextCompat.getColor(this, R.color.offline_gray))
         }
     }
@@ -469,7 +482,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun performTranslation(text: String) {
         binding.cardResult.visibility = View.VISIBLE
-        binding.tvResult.text = getString(R.string.translating)
+        binding.tvEmptyStateHint.visibility = View.GONE
+        binding.tvResult.text = getString(R.string.translating_label)
         binding.tvResult.setTextColor(ContextCompat.getColor(this, R.color.text_body))
         binding.progressBar.visibility = View.VISIBLE
         lastSourceText = text
@@ -499,7 +513,7 @@ class MainActivity : AppCompatActivity() {
             updateFavoriteButton()
         } else {
             lastResultText = ""
-            binding.tvResult.text = "未找到翻译，请尝试在线模式"
+            binding.tvResult.text = getString(R.string.no_result_offline)
             binding.tvResult.setTextColor(ContextCompat.getColor(this, R.color.text_hint))
         }
     }
@@ -527,7 +541,7 @@ class MainActivity : AppCompatActivity() {
                 updateFavoriteButton()
             }.onFailure { error ->
                 lastResultText = ""
-                binding.tvResult.text = "翻译失败: ${error.message}"
+                binding.tvResult.text = getString(R.string.no_result_online) + ": ${error.message}"
                 binding.tvResult.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_red))
             }
         }
@@ -537,17 +551,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkForUpdate() {
         if (!isNetworkAvailable()) {
-            showToast("请连接网络后检查更新")
+            showToast(getString(R.string.network_required))
             return
         }
 
-        showToast("正在检查更新...")
+        showToast(getString(R.string.checking_update))
         lifecycleScope.launch {
             UpdateManager.checkForUpdate(this@MainActivity).onSuccess { info ->
                 if (info != null) {
                     showUpdateDialog(info)
                 } else {
-                    showToast("已是最新版本")
+                    showToast(getString(R.string.already_latest))
                 }
             }.onFailure { error ->
                 showToast(error.message ?: "检查更新失败")
@@ -566,7 +580,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         android.app.AlertDialog.Builder(this)
-            .setTitle("🎉 有新版本可用")
+            .setTitle(getString(R.string.update_found_title))
             .setMessage(msg)
             .setPositiveButton("立即更新") { _, _ ->
                 startDownload(info)
@@ -576,7 +590,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startDownload(info: UpdateManager.UpdateInfo) {
-        showToast("开始下载更新...")
+        showToast(getString(R.string.download_started))
         pendingDownloadId = UpdateManager.downloadApk(this, info.apkUrl, info.versionName)
 
         val receiver = object : BroadcastReceiver() {
@@ -584,7 +598,7 @@ class MainActivity : AppCompatActivity() {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
                 if (id == pendingDownloadId) {
                     unregisterReceiver(this)
-                    showToast("下载完成，正在安装...")
+                    showToast(getString(R.string.download_complete))
                     UpdateManager.installApk(this@MainActivity, pendingDownloadId)
                     pendingDownloadId = -1L
                 }
