@@ -1,16 +1,14 @@
 package com.translator.lao.update
 
 import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import com.translator.lao.api.HttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
@@ -18,34 +16,29 @@ import java.util.concurrent.TimeUnit
 
 /**
  * 在线更新管理器
- * 通过 version.json 检查新版本，镜像加速下载 APK
+ * 通过 version.json 检查新版本，GitHub 镜像加速下载 APK
  */
 object UpdateManager {
 
     private const val REPO_OWNER = "guocheng1378"
     private const val REPO_NAME = "lao-translator-android"
 
-    // GitHub 镜像加速列表（按速度排序，逐个尝试）
+    private val client get() = HttpClient.standard
+
+    // GitHub 镜像加速列表
     private val MIRRORS = listOf(
         "",  // 优先直连
         "https://gh-proxy.com",
-        "https://ghps.cc",
         "https://mirror.ghproxy.com",
     )
 
-    // version.json 检测地址（GitHub 加速镜像，按可用性排序）
+    // version.json 检测地址
     private val VERSION_URLS: List<String>
         get() = listOf(
             "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
             "https://ghproxy.cn/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
             "https://gh-proxy.com/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
-            "https://ghps.cc/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
         )
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .build()
 
     data class UpdateInfo(
         val versionName: String,
@@ -64,17 +57,13 @@ object UpdateManager {
                 @Suppress("DEPRECATION")
                 info.versionCode
             }
-        } catch (e: Exception) {
-            0
-        }
+        } catch (e: Exception) { 0 }
     }
 
     fun getCurrentVersionName(context: Context): String {
         return try {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
-        } catch (e: Exception) {
-            "1.0"
-        }
+        } catch (e: Exception) { "1.0" }
     }
 
     suspend fun checkForUpdate(context: Context): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
@@ -124,15 +113,13 @@ object UpdateManager {
 
     fun downloadApk(context: Context, url: String, versionName: String): Long {
         val fileName = "lao-translator-$versionName.apk"
-        // 对 GitHub 资源，依次尝试镜像下载
         val isGitHubUrl = url.contains("github.com") || url.contains("githubusercontent.com")
         val downloadUrl = if (isGitHubUrl) {
-            // 尝试每个镜像，返回第一个可达的 URL
             var found = url
             for (mirror in MIRRORS) {
                 val candidate = if (mirror.isEmpty()) url else "$mirror/$url"
                 try {
-                    val req = okhttp3.Request.Builder().url(candidate)
+                    val req = Request.Builder().url(candidate)
                         .head()
                         .header("User-Agent", "LaoTranslator-Android")
                         .build()
@@ -149,6 +136,7 @@ object UpdateManager {
             }
             found
         } else url
+
         val request = DownloadManager.Request(Uri.parse(downloadUrl))
             .setTitle("老挝语翻译器 更新")
             .setDescription("正在下载版本 $versionName")
