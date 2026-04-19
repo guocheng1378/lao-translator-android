@@ -43,8 +43,12 @@ class OfflineDictionaryDb(context: Context) : SQLiteOpenHelper(
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
         if (old < 2) {
-            // v1 → v2: 添加罗马拼音列
-            db.execSQL("ALTER TABLE $TABLE_DICT ADD COLUMN $COL_ROM TEXT")
+            // v1 → v2: 添加罗马拼音列（安全添加，列已存在时忽略）
+            try {
+                db.execSQL("ALTER TABLE $TABLE_DICT ADD COLUMN $COL_ROM TEXT")
+            } catch (_: Exception) {
+                // 列已存在，忽略
+            }
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_rom ON $TABLE_DICT($COL_ROM)")
             // 清空数据，下次 importFromMemory 会重新导入带拼音的数据
             db.execSQL("DELETE FROM $TABLE_DICT")
@@ -56,20 +60,28 @@ class OfflineDictionaryDb(context: Context) : SQLiteOpenHelper(
         val count = db.rawQuery("SELECT COUNT(*) FROM $TABLE_DICT", null).use {
             it.moveToFirst(); it.getInt(0)
         }
-        if (count > 0) return
+        if (count > 0) {
+            android.util.Log.d("DictDb", "Dictionary already has $count entries, skipping import")
+            return
+        }
 
+        var imported = 0
         db.beginTransaction()
         try {
             for ((zh, lao) in Dictionary.zhToLao) {
                 // 提取罗马拼音部分
-                val rom = ThaiRomanizer.extractRomanization(lao)
+                val rom = try { ThaiRomanizer.extractRomanization(lao) } catch (_: Exception) { null }
                 db.insert(TABLE_DICT, null, ContentValues().apply {
                     put(COL_ZH, zh)
                     put(COL_LO, lao)
                     put(COL_ROM, rom)
                 })
+                imported++
             }
             db.setTransactionSuccessful()
+            android.util.Log.d("DictDb", "Imported $imported dictionary entries")
+        } catch (e: Exception) {
+            android.util.Log.e("DictDb", "Import failed after $imported entries", e)
         } finally {
             db.endTransaction()
         }
