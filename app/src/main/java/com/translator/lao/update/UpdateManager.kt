@@ -33,16 +33,14 @@ object UpdateManager {
         "https://ghps.cc",
     )
 
-    // version.json 检测地址（jsdelivr 加时间戳防缓存）
+    // version.json 检测地址（GitHub 加速镜像，按可用性排序）
     private val VERSION_URLS: List<String>
-        get() {
-            val ts = System.currentTimeMillis() / 60000 // 每分钟变一次，避免频繁请求
-            return listOf(
-                "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
-                "https://cdn.jsdelivr.net/gh/$REPO_OWNER/$REPO_NAME@main/version.json?t=$ts",
-                "https://gcore.jsdelivr.net/gh/$REPO_OWNER/$REPO_NAME@main/version.json?t=$ts",
-            )
-        }
+        get() = listOf(
+            "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
+            "https://ghproxy.cn/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
+            "https://gh-proxy.com/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
+            "https://ghps.cc/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
+        )
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
