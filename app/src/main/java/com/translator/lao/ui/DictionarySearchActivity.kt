@@ -189,7 +189,36 @@ class DictionarySearchActivity : AppCompatActivity() {
 
     private fun startThaiVoiceRecognition() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            showToast("语音识别不可用，请检查麦克风权限")
+            android.app.AlertDialog.Builder(this)
+                .setTitle("语音识别不可用")
+                .setMessage("当前设备未安装语音识别服务\n\n" +
+                    "国内手机通常缺少 Google 语音服务\n\n" +
+                    "💡 建议：使用手机键盘自带的 🎤 语音输入")
+                .setPositiveButton("知道了", null)
+                .show()
+            return
+        }
+
+        // 实际尝试创建识别器（有些设备 isRecognitionAvailable 返回 true 但创建失败）
+        try {
+            val test = SpeechRecognizer.createSpeechRecognizer(this)
+            if (test == null) {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("语音识别服务缺失")
+                    .setMessage("设备缺少语音识别服务（Google Speech Services）\n\n" +
+                        "这在国内手机上非常常见\n\n" +
+                        "💡 建议：使用手机键盘自带的 🎤 语音输入")
+                    .setPositiveButton("知道了", null)
+                    .show()
+                return
+            }
+            test.destroy()
+        } catch (e: Exception) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("语音识别服务缺失")
+                .setMessage("无法启动语音识别：${e.message}\n\n💡 建议：使用手机键盘自带的 🎤 语音输入")
+                .setPositiveButton("知道了", null)
+                .show()
             return
         }
 
@@ -222,9 +251,10 @@ class DictionarySearchActivity : AppCompatActivity() {
                 val msg = when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH -> "未识别到语音，请重试"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "语音超时"
-                    SpeechRecognizer.ERROR_NETWORK -> "网络错误"
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "未授予麦克风权限"
-                    else -> "识别失败 (错误码: $error)"
+                    SpeechRecognizer.ERROR_NETWORK -> "网络错误（语音识别需要联网）"
+                    SpeechRecognizer.ERROR_CLIENT -> "语音识别服务异常\n设备可能缺少 Google 语音服务\n💡 建议使用键盘上的🎤语音输入"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "语音识别服务异常\n（已授权但仍失败 = 服务缺失）\n💡 建议使用键盘上的🎤语音输入"
+                    else -> "识别失败 (错误码: $error)\n💡 建议使用键盘上的🎤语音输入"
                 }
                 showToast(msg)
                 resetVoiceUI()
