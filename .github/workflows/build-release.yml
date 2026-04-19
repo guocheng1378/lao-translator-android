@@ -20,6 +20,42 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Parse version from tag
+        id: version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          NAME=${TAG#v}
+          MAJOR=$(echo $NAME | cut -d. -f1)
+          MINOR=$(echo $NAME | cut -d. -f2)
+          CODE=$((MAJOR * 100 + MINOR))
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "code=$CODE" >> $GITHUB_OUTPUT
+          echo "Version: $NAME (code: $CODE)"
+
+      - name: Update version files
+        run: |
+          TAG=${{ steps.version.outputs.tag }}
+          NAME=${{ steps.version.outputs.name }}
+          CODE=${{ steps.version.outputs.code }}
+
+          # 更新 build.gradle.kts
+          sed -i "s/versionCode = .*/versionCode = $CODE/" app/build.gradle.kts
+          sed -i "s/versionName = .*/versionName = \"$NAME\"/" app/build.gradle.kts
+
+          # 更新 version.json
+          cat > version.json << EOF
+          {
+            "versionCode": $CODE,
+            "versionName": "$TAG",
+            "apkUrl": "https://github.com/${{ github.repository }}/releases/download/$TAG/app-release-unsigned.apk",
+            "changelog": "",
+            "fileSize": 0
+          }
+          EOF
+
+          echo "Updated version to $TAG (code: $CODE)"
+
       - name: Install Gradle
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip -O /tmp/gradle.zip
@@ -32,7 +68,32 @@ jobs:
       - name: Build APK
         run: ./gradlew assembleRelease
 
+      - name: Update version.json with file size
+        run: |
+          SIZE=$(stat -c%s app/build/outputs/apk/release/*.apk 2>/dev/null || echo 0)
+          TAG=${{ steps.version.outputs.tag }}
+          NAME=${{ steps.version.outputs.name }}
+          CODE=${{ steps.version.outputs.code }}
+
+          cat > version.json << EOF
+          {
+            "versionCode": $CODE,
+            "versionName": "$TAG",
+            "apkUrl": "https://github.com/${{ github.repository }}/releases/download/$TAG/app-release-unsigned.apk",
+            "changelog": "",
+            "fileSize": $SIZE
+          }
+          EOF
+
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/*.apk
+
+      - name: Commit version files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json app/build.gradle.kts
+          git diff --staged --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.tag }}"
+          git push origin main
