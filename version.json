@@ -1,7 +1,7 @@
 {
-  "versionCode": 200,
-  "versionName": "v2.0",
-  "apkUrl": "https://github.com/guocheng1378/lao-translator-android/releases/download/v2.0/app-release-unsigned.apk",
-  "changelog": "🔊 语音合成全面改进：Edge TTS 不可用时自动降级为系统语音引擎\n🎤 语音识别修复：修复国产手机"无权限"误报，准确检测语音服务可用性\n📖 词典朗读修复：修复 TTS 初始化和语言数据检测\n🔧 词典数据库升级健壮性：修复升级后词典为空的问题\n🎨 词典朗读按钮改用喇叭图标，更清晰可辨\n在下方写下一版本的更新内容，格式如下。CI 会自动读取并写入 version.json。",
+  "versionCode": 201,
+  "versionName": "v2.1",
+  "apkUrl": "https://github.com/guocheng1378/lao-translator-android/releases/download/v2.1/app-release-unsigned.apk",
+  "changelog": "版本 2.1 更新",
   "fileSize": 46493407
 }
