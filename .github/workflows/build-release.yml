@@ -113,5 +113,6 @@ jobs:
           git checkout main
           git add version.json app/build.gradle.kts
           git diff --staged --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.tag }}"
-          git pull --rebase origin main
+          git checkout . || true
+git pull --rebase origin main
           git push origin main
