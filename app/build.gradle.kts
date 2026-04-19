@@ -11,8 +11,8 @@ android {
         applicationId = "com.translator.lao"
         minSdk = 24
         targetSdk = 34
-        versionCode = 107
-        versionName = "1.7"
+        versionCode = 108
+        versionName = "1.8"
     }
 
     buildTypes {

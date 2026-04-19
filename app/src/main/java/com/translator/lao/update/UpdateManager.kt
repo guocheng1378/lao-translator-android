@@ -28,9 +28,9 @@ object UpdateManager {
     // GitHub 镜像加速列表（按速度排序，逐个尝试）
     private val MIRRORS = listOf(
         "",  // 优先直连
-        "https://ghproxy.cn",
         "https://gh-proxy.com",
         "https://ghps.cc",
+        "https://mirror.ghproxy.com",
     )
 
     // version.json 检测地址（GitHub 加速镜像，按可用性排序）
@@ -124,11 +124,30 @@ object UpdateManager {
 
     fun downloadApk(context: Context, url: String, versionName: String): Long {
         val fileName = "lao-translator-$versionName.apk"
-        // 优先用镜像下载 GitHub 资源
-        val downloadUrl = if (url.contains("github.com") || url.contains("githubusercontent.com")) {
-            // 找到第一个可用镜像前缀
-            val mirror = MIRRORS.firstOrNull { it.isNotEmpty() } ?: ""
-            if (mirror.isNotEmpty()) "$mirror/$url" else url
+        // 对 GitHub 资源，依次尝试镜像下载
+        val isGitHubUrl = url.contains("github.com") || url.contains("githubusercontent.com")
+        val downloadUrl = if (isGitHubUrl) {
+            // 尝试每个镜像，返回第一个可达的 URL
+            var found = url
+            for (mirror in MIRRORS) {
+                val candidate = if (mirror.isEmpty()) url else "$mirror/$url"
+                try {
+                    val req = okhttp3.Request.Builder().url(candidate)
+                        .head()
+                        .header("User-Agent", "LaoTranslator-Android")
+                        .build()
+                    val resp = client.newBuilder()
+                        .connectTimeout(10, TimeUnit.SECONDS)
+                        .readTimeout(10, TimeUnit.SECONDS)
+                        .build()
+                        .newCall(req).execute()
+                    if (resp.isSuccessful) {
+                        found = candidate
+                        break
+                    }
+                } catch (_: Exception) { }
+            }
+            found
         } else url
         val request = DownloadManager.Request(Uri.parse(downloadUrl))
             .setTitle("老挝语翻译器 更新")
