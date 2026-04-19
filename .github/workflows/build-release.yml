@@ -46,7 +46,7 @@ jobs:
           sed -i "s/versionCode = .*/versionCode = $CODE/" app/build.gradle.kts
           sed -i "s/versionName = .*/versionName = \"$NAME\"/" app/build.gradle.kts
 
-          # 更新 version.json
+          # 更新 version.json（changelog 后续步骤填充）
           cat > version.json << EOF
           {
             "versionCode": $CODE,
@@ -71,22 +71,35 @@ jobs:
       - name: Build APK
         run: ./gradlew assembleRelease
 
-      - name: Update version.json with file size
+      - name: Update version.json with file size and changelog
         run: |
           SIZE=$(stat -c%s app/build/outputs/apk/release/*.apk 2>/dev/null || echo 0)
           TAG=${{ steps.version.outputs.tag }}
           NAME=${{ steps.version.outputs.name }}
           CODE=${{ steps.version.outputs.code }}
 
+          # 从 CHANGELOG.md 提取当前版本的更新说明
+          CHANGELOG=""
+          if [ -f CHANGELOG.md ]; then
+            # 提取 "## TAG" 到下一个 "## " 之间的内容
+            CHANGELOG=$(awk "/^## $TAG/{found=1; next} /^## /{if(found) exit} found{print}" CHANGELOG.md | sed '/^$/d' | sed 's/^- //;s/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+          fi
+          # 如果为空，使用默认说明
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="版本 $NAME 更新"
+          fi
+
           cat > version.json << EOF
           {
             "versionCode": $CODE,
             "versionName": "$TAG",
             "apkUrl": "https://github.com/${{ github.repository }}/releases/download/$TAG/app-release-unsigned.apk",
-            "changelog": "",
+            "changelog": "$CHANGELOG",
             "fileSize": $SIZE
           }
           EOF
+
+          echo "Changelog: $CHANGELOG"
 
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v2
