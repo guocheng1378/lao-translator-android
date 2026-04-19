@@ -456,6 +456,7 @@ object Dictionary {
             "没问题" to "ບໍ່ມີບັນຫາ (bo mi banha)",
             "注意" to "ລະວັງ (lavang)",
             "小心" to "ລະວັງແດ່ (lavang dae)",
+            "郭成宇" to "ກູໂອເຊ້ງຢູ່ (Guo Cheng Yu)",
         ))
     }
 
@@ -654,6 +655,7 @@ object Dictionary {
             "ເຂົ້າໃຈ" to "明白",
             "ລະວັງ" to "小心",
             "ເທົ່າໃດ" to "多少",
+            "ກູໂອເຊ້ງຢູ່" to "郭成宇",
         ))
     }
 
