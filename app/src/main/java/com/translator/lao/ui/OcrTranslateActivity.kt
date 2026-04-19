@@ -22,6 +22,7 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.translator.lao.R
 import com.translator.lao.api.TranslationApi
+import com.translator.lao.data.DictionaryStore
 import com.translator.lao.databinding.ActivityOcrTranslateBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,6 +34,7 @@ class OcrTranslateActivity : AppCompatActivity() {
     private lateinit var binding: ActivityOcrTranslateBinding
     private var capturedImageUri: Uri? = null
     private var isLaoToChinese = true
+    private var isOfflineMode = true
 
     private val takePictureLauncher = registerForActivityResult(
         ActivityResultContracts.TakePicture()
@@ -65,6 +67,24 @@ class OcrTranslateActivity : AppCompatActivity() {
     private fun setupUI() {
         binding.btnBack.setOnClickListener { finish() }
         updateDirectionUI()
+        updateModeUI()
+
+        binding.btnOffline.setOnClickListener {
+            if (!isOfflineMode) {
+                isOfflineMode = true
+                updateModeUI()
+                val recognized = binding.tvOcrResult.text.toString()
+                if (recognized.isNotEmpty() && recognized != "正在识别文字...") performTranslation(recognized)
+            }
+        }
+        binding.btnOnline.setOnClickListener {
+            if (isOfflineMode) {
+                isOfflineMode = false
+                updateModeUI()
+                val recognized = binding.tvOcrResult.text.toString()
+                if (recognized.isNotEmpty() && recognized != "正在识别文字...") performTranslation(recognized)
+            }
+        }
 
         binding.btnCamera.setOnClickListener { checkCameraPermission() }
         binding.btnGallery.setOnClickListener { pickImageLauncher.launch("image/*") }
@@ -97,6 +117,16 @@ class OcrTranslateActivity : AppCompatActivity() {
 
     private fun updateDirectionUI() {
         binding.tvDirection.text = if (isLaoToChinese) "老挝语 → 中文" else "中文 → 老挝语"
+    }
+
+    private fun updateModeUI() {
+        if (isOfflineMode) {
+            binding.btnOffline.alpha = 1f
+            binding.btnOnline.alpha = 0.5f
+        } else {
+            binding.btnOffline.alpha = 0.5f
+            binding.btnOnline.alpha = 1f
+        }
     }
 
     private fun checkCameraPermission() {
@@ -163,14 +193,26 @@ class OcrTranslateActivity : AppCompatActivity() {
         binding.tvTranslationResult.text = "正在翻译..."
         binding.progressBar.visibility = View.VISIBLE
 
-        lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                if (isLaoToChinese) TranslationApi.laoToChinese(text)
-                else TranslationApi.chineseToLao(text)
-            }
+        if (isOfflineMode) {
+            // 离线词典翻译
+            val results = DictionaryStore.translate(text, isLaoToChinese)
             binding.progressBar.visibility = View.GONE
-            result.onSuccess { binding.tvTranslationResult.text = it }
-                .onFailure { binding.tvTranslationResult.text = "翻译失败：${it.message}" }
+            if (results.isNotEmpty()) {
+                binding.tvTranslationResult.text = results.joinToString("\n")
+            } else {
+                binding.tvTranslationResult.text = "离线词典未找到结果，可尝试在线翻译"
+            }
+        } else {
+            // 在线翻译
+            lifecycleScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    if (isLaoToChinese) TranslationApi.laoToChinese(text)
+                    else TranslationApi.chineseToLao(text)
+                }
+                binding.progressBar.visibility = View.GONE
+                result.onSuccess { binding.tvTranslationResult.text = it }
+                    .onFailure { binding.tvTranslationResult.text = "翻译失败：${it.message}" }
+            }
         }
     }
 

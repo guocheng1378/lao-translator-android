@@ -27,7 +27,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- 语言方向 -->
+    <!-- 语言方向 + 模式 -->
     <LinearLayout
         android:id="@+id/layoutDirection"
         android:layout_width="wrap_content"
@@ -60,6 +60,42 @@
             android:contentDescription="切换" />
     </LinearLayout>
 
+    <!-- 离线/在线切换 -->
+    <LinearLayout
+        android:id="@+id/layoutMode"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_network_badge"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="3dp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/layoutDirection">
+
+        <TextView
+            android:id="@+id/btnOffline"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="4dp"
+            android:text="📖 离线"
+            android:textSize="13sp"
+            android:textColor="@color/text_primary" />
+
+        <TextView
+            android:id="@+id/btnOnline"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="4dp"
+            android:text="🌐 在线"
+            android:textSize="13sp"
+            android:textColor="@color/text_primary"
+            android:alpha="0.5" />
+    </LinearLayout>
+
     <!-- 图片预览区 -->
     <com.google.android.material.card.MaterialCardView
         android:layout_width="0dp"
@@ -67,7 +103,7 @@
         android:layout_marginTop="12dp"
         app:cardCornerRadius="12dp"
         app:cardElevation="2dp"
-        app:layout_constraintTop_toBottomOf="@id/layoutDirection"
+        app:layout_constraintTop_toBottomOf="@id/layoutMode"
         app:layout_constraintBottom_toTopOf="@id/layoutButtons"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
