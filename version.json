@@ -1,7 +1,7 @@
 {
-  "versionCode": 2,
-  "versionName": "v1.2",
-  "apkUrl": "https://github.com/guocheng1378/lao-translator-android/releases/download/v1.2/app-release-unsigned.apk",
-  "changelog": "1. 更新检测改用version.json，国内镜像优先\n2. 日常用语扩充至400+条\n3. 新增日常分类",
-  "fileSize": 5231100
+  "versionCode": 103,
+  "versionName": "v1.3",
+  "apkUrl": "https://github.com/guocheng1378/lao-translator-android/releases/download/v1.3/app-release-unsigned.apk",
+  "changelog": "新增拍照翻译功能，支持拍照和相册选图识别文字\n新增离线词典搜索，支持模糊搜索和收藏\n拍照翻译支持离线/在线模式切换\n依赖下载添加阿里云 Maven 镜像加速\n更新下载增加多个 GitHub 镜像加速源",
+  "fileSize": 46460133
 }
