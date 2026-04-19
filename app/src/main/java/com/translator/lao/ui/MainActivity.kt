@@ -227,7 +227,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 showToast("正在朗读...")
                 lifecycleScope.launch {
-                    speechManager.speak(text, object : SpeechManager.TtsCallback {
+                    speechManager.speak(text, callback = object : SpeechManager.TtsCallback {
                         override fun onComplete() {
                             Log.d("MainActivity", "TTS playback complete")
                         }
