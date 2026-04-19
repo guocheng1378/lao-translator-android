@@ -170,6 +170,16 @@ class MainActivity : AppCompatActivity() {
             checkForUpdate()
         }
 
+        // 拍照翻译
+        binding.btnOcr.setOnClickListener {
+            OcrTranslateActivity.start(this)
+        }
+
+        // 词典搜索
+        binding.btnDictionary.setOnClickListener {
+            DictionarySearchActivity.start(this)
+        }
+
         binding.btnTranslate.setOnClickListener {
             val text = binding.etSource.text.toString().trim()
             if (text.isNotEmpty()) performTranslation(text)
