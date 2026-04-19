@@ -27,6 +27,8 @@ import com.translator.lao.R
 import com.translator.lao.api.TranslationApi
 import com.translator.lao.data.Dictionary
 import com.translator.lao.data.DictionaryStore
+import com.translator.lao.data.FavoritesStore
+import com.translator.lao.data.HistoryStore
 import com.translator.lao.databinding.ActivityMainBinding
 import com.translator.lao.speech.SpeechManager
 import com.translator.lao.update.UpdateManager
@@ -37,6 +39,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var speechManager: SpeechManager
+    private lateinit var favoritesStore: FavoritesStore
 
     private var isOfflineMode = true
     private var isLaoToChinese = true
@@ -44,6 +47,8 @@ class MainActivity : AppCompatActivity() {
     private var selectedCategoryIndex = -1
     private var currentSource = TranslationApi.Source.MYMEMORY
     private var pendingDownloadId: Long = -1L
+    private var lastSourceText = ""
+    private var lastResultText = ""
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -58,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         speechManager = SpeechManager(this)
+        favoritesStore = FavoritesStore(this)
 
         initUI()
         updateNetworkStatus()
@@ -170,6 +176,16 @@ class MainActivity : AppCompatActivity() {
             checkForUpdate()
         }
 
+        // 翻译历史
+        binding.btnHistory.setOnClickListener {
+            HistoryActivity.start(this)
+        }
+
+        // 我的收藏
+        binding.btnFavorites.setOnClickListener {
+            FavoritesActivity.start(this)
+        }
+
         // 拍照翻译
         binding.btnOcr.setOnClickListener {
             OcrTranslateActivity.start(this)
@@ -207,6 +223,8 @@ class MainActivity : AppCompatActivity() {
             binding.etSource.text?.clear()
             binding.tvResult.text = ""
             binding.cardResult.visibility = View.GONE
+            lastSourceText = ""
+            lastResultText = ""
         }
 
         binding.btnCopy.setOnClickListener {
@@ -215,6 +233,25 @@ class MainActivity : AppCompatActivity() {
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("translation", text))
                 showToast("已复制")
+            }
+        }
+
+        // 收藏翻译结果
+        binding.btnFavoriteResult.setOnClickListener {
+            if (lastSourceText.isNotEmpty() && lastResultText.isNotEmpty()) {
+                val fromLang = if (isLaoToChinese) "lo" else "zh"
+                val toLang = if (isLaoToChinese) "zh" else "lo"
+                if (favoritesStore.isFavorite(lastSourceText, lastResultText)) {
+                    favoritesStore.removeFavorite(lastSourceText, lastResultText)
+                    binding.btnFavoriteResult.setImageResource(R.drawable.ic_star)
+                    binding.btnFavoriteResult.imageTintList = ContextCompat.getColorStateList(this, R.color.text_hint)
+                    showToast("已取消收藏")
+                } else {
+                    favoritesStore.addFavorite(lastSourceText, lastResultText, fromLang, toLang)
+                    binding.btnFavoriteResult.setImageResource(R.drawable.ic_star_filled)
+                    binding.btnFavoriteResult.imageTintList = null
+                    showToast("已收藏")
+                }
             }
         }
 
@@ -429,6 +466,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvResult.text = getString(R.string.translating)
         binding.tvResult.setTextColor(ContextCompat.getColor(this, R.color.text_body))
         binding.progressBar.visibility = View.VISIBLE
+        lastSourceText = text
 
         if (isOfflineMode) {
             performOfflineTranslation(text)
@@ -442,10 +480,19 @@ class MainActivity : AppCompatActivity() {
         binding.progressBar.visibility = View.GONE
 
         if (results.isNotEmpty()) {
-            binding.tvResult.text = results.joinToString("\n")
+            val translated = results.joinToString("\n")
+            lastResultText = translated
+            binding.tvResult.text = translated
             binding.tvResult.alpha = 0f
             binding.tvResult.animate().alpha(1f).setDuration(300).start()
+
+            // 保存历史
+            val fromLang = if (isLaoToChinese) "lo" else "zh"
+            val toLang = if (isLaoToChinese) "zh" else "lo"
+            HistoryStore(this).saveHistory(text, translated, fromLang, toLang)
+            updateFavoriteButton()
         } else {
+            lastResultText = ""
             binding.tvResult.text = "未找到翻译，请尝试在线模式"
             binding.tvResult.setTextColor(ContextCompat.getColor(this, R.color.text_hint))
         }
@@ -462,10 +509,18 @@ class MainActivity : AppCompatActivity() {
             binding.progressBar.visibility = View.GONE
 
             result.onSuccess { translated ->
+                lastResultText = translated
                 binding.tvResult.text = translated
                 binding.tvResult.alpha = 0f
                 binding.tvResult.animate().alpha(1f).setDuration(300).start()
+
+                // 保存历史
+                val fromLang = if (isLaoToChinese) "lo" else "zh"
+                val toLang = if (isLaoToChinese) "zh" else "lo"
+                HistoryStore(this@MainActivity).saveHistory(text, translated, fromLang, toLang)
+                updateFavoriteButton()
             }.onFailure { error ->
+                lastResultText = ""
                 binding.tvResult.text = "翻译失败: ${error.message}"
                 binding.tvResult.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_red))
             }
@@ -539,6 +594,19 @@ class MainActivity : AppCompatActivity() {
 
     // ==================== 工具 ====================
 
+    private fun updateFavoriteButton() {
+        if (lastSourceText.isNotEmpty() && lastResultText.isNotEmpty()) {
+            val isFav = favoritesStore.isFavorite(lastSourceText, lastResultText)
+            if (isFav) {
+                binding.btnFavoriteResult.setImageResource(R.drawable.ic_star_filled)
+                binding.btnFavoriteResult.imageTintList = null
+            } else {
+                binding.btnFavoriteResult.setImageResource(R.drawable.ic_star)
+                binding.btnFavoriteResult.imageTintList = ContextCompat.getColorStateList(this, R.color.text_hint)
+            }
+        }
+    }
+
     private fun showToast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
@@ -548,3 +616,4 @@ class MainActivity : AppCompatActivity() {
         speechManager.release()
     }
 }
+
