@@ -37,7 +37,11 @@ class DictionarySearchActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         db = OfflineDictionaryDb(this)
-        Thread { db.importFromMemory() }.start()
+
+        // 先导入词典数据，确保搜索可用
+        try { db.importFromMemory() } catch (e: Exception) {
+            android.util.Log.e("DictSearch", "import failed", e)
+        }
 
         tts = TextToSpeech(this) { /* ready */ }
 
