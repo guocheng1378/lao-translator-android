@@ -37,7 +37,7 @@ class MiMoTtsManager(private val context: Context) {
         // 老挝语语音: lo-LA-KeomanyNeural
         private const val VOICE_LO = "lo-LA-KeomanyNeural"
 
-        // 从 ENDPOINT 提取主机名，用于连通性检测
+        // 从 ENDPOINT 提取主机名，用于日志
         private val HOST: String = try {
             java.net.URI(ENDPOINT).host ?: "guo.tail7aa8e0.ts.net"
         } catch (_: Exception) {
@@ -50,65 +50,20 @@ class MiMoTtsManager(private val context: Context) {
         fun onError(error: String)
     }
 
-    // 使用短超时，让不可达时快速失败
     private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // 用于快速连通性检测的独立 client（更短超时）
-    private val probeClient = OkHttpClient.Builder()
-        .connectTimeout(3, TimeUnit.SECONDS)
-        .readTimeout(3, TimeUnit.SECONDS)
-        .callTimeout(5, TimeUnit.SECONDS)
-        .build()
-
     private var mediaPlayer: MediaPlayer? = null
-    private var isLao = false  // 由 speak 调用时设置
-
-    // 连通性检测缓存
-    @Volatile
-    private var lastCheckTime = 0L
-    @Volatile
-    private var lastCheckResult = false
-    private val CHECK_CACHE_MS = 10_000L // 10秒缓存（缩短，更快感知网络变化）
+    private var isLao = false
 
     /**
-     * 检测 TTS 服务是否可达
-     *
-     * 通过实际 HTTP 请求探测（而非 DNS 解析），准确判断服务是否真正可用。
-     * 失败时快速返回 false，避免用户等待。
+     * 始终返回 true，不做过滤。
+     * 实际可用性由 speak() 的 HTTP 请求和异常处理来判断。
+     * 这样 SpeechManager 总会尝试 Edge TTS，失败时自动 fallback 系统 TTS。
      */
-    fun isReachable(): Boolean {
-        val now = System.currentTimeMillis()
-        if (now - lastCheckTime < CHECK_CACHE_MS) {
-            return lastCheckResult
-        }
-
-        val result = try {
-            // 用 HEAD 请求快速探测，不下载音频内容
-            val probeUrl = ENDPOINT.replace("/v1/audio/speech", "/docs")
-            val request = Request.Builder().url(probeUrl).head().build()
-            val response = probeClient.newCall(request).execute()
-            val ok = response.isSuccessful || response.code in 200..499
-            response.close()
-            ok
-        } catch (e: java.net.UnknownHostException) {
-            Log.w(TAG, "DNS resolution failed for $HOST: ${e.message}")
-            false
-        } catch (e: java.net.SocketTimeoutException) {
-            Log.w(TAG, "Probe timeout for $HOST")
-            false
-        } catch (e: Exception) {
-            Log.w(TAG, "Reachability check failed: ${e.message}")
-            false
-        }
-
-        lastCheckTime = now
-        lastCheckResult = result
-        Log.d(TAG, "Probe result for $HOST: $result")
-        return result
-    }
+    fun isAvailable(): Boolean = true
 
     /**
      * 获取不可达原因的用户友好描述
@@ -122,8 +77,6 @@ class MiMoTtsManager(private val context: Context) {
                 "3. 或联系开发者配置公网 TTS 服务\n\n" +
                 "已自动切换为系统语音引擎播报"
     }
-
-    fun isAvailable(): Boolean = isReachable()
 
     /**
      * 设置语言方向
@@ -155,7 +108,6 @@ class MiMoTtsManager(private val context: Context) {
             val trimmedText = if (text.length > 500) text.take(500) else text
             val voice = if (isLao) VOICE_LO else VOICE_ZH
 
-            // 构建请求体
             val payload = JSONObject()
                 .put("input", trimmedText)
                 .put("voice", voice)
@@ -176,25 +128,18 @@ class MiMoTtsManager(private val context: Context) {
                 client.newCall(reqBuilder.build()).execute()
             } catch (e: java.net.UnknownHostException) {
                 Log.e(TAG, "Network error: cannot resolve $HOST", e)
-                // 更新缓存为不可达
-                lastCheckTime = System.currentTimeMillis()
-                lastCheckResult = false
                 withContext(Dispatchers.Main) {
                     callback?.onError("网络错误：无法连接到 TTS 服务 ($HOST)，请检查 Tailscale 连接")
                 }
                 return@withContext
             } catch (e: java.net.SocketTimeoutException) {
                 Log.e(TAG, "Timeout connecting to $HOST", e)
-                lastCheckTime = System.currentTimeMillis()
-                lastCheckResult = false
                 withContext(Dispatchers.Main) {
                     callback?.onError("连接超时：TTS 服务响应过慢，请检查网络")
                 }
                 return@withContext
             } catch (e: java.net.ConnectException) {
                 Log.e(TAG, "Connection refused to $HOST", e)
-                lastCheckTime = System.currentTimeMillis()
-                lastCheckResult = false
                 withContext(Dispatchers.Main) {
                     callback?.onError("连接被拒绝：TTS 服务未启动或不可达")
                 }
