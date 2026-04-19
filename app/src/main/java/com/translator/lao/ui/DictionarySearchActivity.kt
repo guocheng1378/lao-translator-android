@@ -49,7 +49,14 @@ class DictionarySearchActivity : AppCompatActivity() {
             android.util.Log.e("DictSearch", "import failed", e)
         }
 
-        tts = TextToSpeech(this) { /* ready */ }
+        tts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                android.util.Log.d("DictSearch", "TTS engine ready")
+            } else {
+                android.util.Log.e("DictSearch", "TTS init failed: $status")
+                showToast("语音引擎初始化失败")
+            }
+        }
 
         setupUI()
         showEmptyHint()
@@ -110,9 +117,26 @@ class DictionarySearchActivity : AppCompatActivity() {
 
         adapter = DictAdapter(
             onSpeak = { text, isLao ->
+                val engine = tts
+                if (engine == null) {
+                    showToast("语音引擎未初始化")
+                    return@DictAdapter
+                }
                 val locale = if (isLao) Locale("lo") else Locale.CHINESE
-                tts?.language = locale
-                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts")
+                val langResult = engine.setLanguage(locale)
+                if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    val langName = if (isLao) "老挝语" else "中文"
+                    showToast("${langName}语音数据不可用，尝试安装...")
+                    val installIntent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+                    try { startActivity(installIntent) } catch (_: Exception) {
+                        showToast("${langName}语音不支持")
+                    }
+                    return@DictAdapter
+                }
+                val result = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts_${System.currentTimeMillis()}")
+                if (result == TextToSpeech.ERROR) {
+                    showToast("朗读失败")
+                }
             },
             onCopy = { text ->
                 val cb = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
