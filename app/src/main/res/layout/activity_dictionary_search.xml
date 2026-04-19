@@ -70,19 +70,47 @@
                 android:contentDescription="切换" />
         </LinearLayout>
 
-        <com.google.android.material.textfield.TextInputLayout
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etSearch"
-                android:layout_width="match_parent"
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:hint="输入搜索..."
-                android:inputType="text"
-                android:imeOptions="actionSearch" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_weight="1"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etSearch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="输入搜索..."
+                    android:inputType="text"
+                    android:imeOptions="actionSearch" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <ImageButton
+                android:id="@+id/btnVoice"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_mic"
+                android:contentDescription="语音搜索"
+                android:padding="10dp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvVoiceHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="🎤 用泰语说话搜索老挝语词典（泰语和老挝语相似度约70%）"
+            android:textSize="11sp"
+            android:textColor="@color/text_hint"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- 清空历史按钮 -->

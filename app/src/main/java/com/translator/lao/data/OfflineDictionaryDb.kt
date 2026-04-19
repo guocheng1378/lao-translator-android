@@ -11,12 +11,13 @@ class OfflineDictionaryDb(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DB_NAME = "lao_dictionary.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
 
         private const val TABLE_DICT = "dictionary"
         private const val COL_ID = "_id"
         private const val COL_ZH = "zh"
         private const val COL_LO = "lao"
+        private const val COL_ROM = "romanization"
 
         private const val TABLE_FAVORITES = "favorites"
         private const val COL_FAV_ZH = "zh"
@@ -30,9 +31,10 @@ class OfflineDictionaryDb(context: Context) : SQLiteOpenHelper(
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE $TABLE_DICT ($COL_ID INTEGER PRIMARY KEY AUTOINCREMENT, $COL_ZH TEXT NOT NULL, $COL_LO TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE $TABLE_DICT ($COL_ID INTEGER PRIMARY KEY AUTOINCREMENT, $COL_ZH TEXT NOT NULL, $COL_LO TEXT NOT NULL, $COL_ROM TEXT)")
         db.execSQL("CREATE INDEX idx_zh ON $TABLE_DICT($COL_ZH)")
         db.execSQL("CREATE INDEX idx_lo ON $TABLE_DICT($COL_LO)")
+        db.execSQL("CREATE INDEX idx_rom ON $TABLE_DICT($COL_ROM)")
 
         db.execSQL("CREATE TABLE $TABLE_FAVORITES ($COL_FAV_ZH TEXT NOT NULL, $COL_FAV_LO TEXT NOT NULL, $COL_FAV_TS INTEGER NOT NULL, UNIQUE($COL_FAV_ZH, $COL_FAV_LO))")
 
@@ -40,10 +42,13 @@ class OfflineDictionaryDb(context: Context) : SQLiteOpenHelper(
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_DICT")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_FAVORITES")
-        db.execSQL("DROP TABLE IF EXISTS $TABLE_HISTORY")
-        onCreate(db)
+        if (old < 2) {
+            // v1 → v2: 添加罗马拼音列
+            db.execSQL("ALTER TABLE $TABLE_DICT ADD COLUMN $COL_ROM TEXT")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_rom ON $TABLE_DICT($COL_ROM)")
+            // 清空数据，下次 importFromMemory 会重新导入带拼音的数据
+            db.execSQL("DELETE FROM $TABLE_DICT")
+        }
     }
 
     fun importFromMemory() {
@@ -56,9 +61,12 @@ class OfflineDictionaryDb(context: Context) : SQLiteOpenHelper(
         db.beginTransaction()
         try {
             for ((zh, lao) in Dictionary.zhToLao) {
+                // 提取罗马拼音部分
+                val rom = ThaiRomanizer.extractRomanization(lao)
                 db.insert(TABLE_DICT, null, ContentValues().apply {
                     put(COL_ZH, zh)
                     put(COL_LO, lao)
+                    put(COL_ROM, rom)
                 })
             }
             db.setTransactionSuccessful()
@@ -101,6 +109,62 @@ class OfflineDictionaryDb(context: Context) : SQLiteOpenHelper(
         }
 
         return results
+    }
+
+    /**
+     * 通过罗马拼音模糊搜索（用于泰语语音识别结果匹配老挝语词典）
+     *
+     * @param romanizedQuery 泰语罗马化后的拼音，如 "sawatdi"
+     * @param limit 最大返回数
+     * @return 匹配的 (中文, 老挝语) 列表，按相似度排序
+     */
+    fun searchByRomanization(romanizedQuery: String, limit: Int = 30): List<Pair<String, String>> {
+        val db = readableDatabase
+        val q = romanizedQuery.trim().lowercase()
+        if (q.isEmpty() || q.length < 2) return emptyList()
+
+        // 先尝试精确/前缀匹配
+        val exactResults = mutableListOf<Pair<String, String>>()
+        db.rawQuery(
+            "SELECT $COL_ZH, $COL_LO, $COL_ROM FROM $TABLE_DICT WHERE $COL_ROM IS NOT NULL AND $COL_ROM != '' AND ($COL_ROM = ? OR $COL_ROM LIKE ?) LIMIT ?",
+            arrayOf(q, "$q%", limit.toString())
+        ).use {
+            while (it.moveToFirst()) {
+                exactResults.add(it.getString(0) to it.getString(1))
+                if (!it.moveToNext()) break
+            }
+        }
+        if (exactResults.isNotEmpty()) return exactResults
+
+        // 模糊匹配：遍历所有有拼音的条目，计算相似度
+        val scored = mutableListOf<Triple<String, String, Double>>()
+        db.rawQuery(
+            "SELECT $COL_ZH, $COL_LO, $COL_ROM FROM $TABLE_DICT WHERE $COL_ROM IS NOT NULL AND $COL_ROM != ''",
+            null
+        ).use {
+            while (it.moveToFirst()) {
+                val rom = it.getString(2)
+                // 处理多拼音条目（如 "khop jai" 可能包含空格分隔的词）
+                val romParts = rom.split(" ")
+                val bestScore = romParts.maxOfOrNull { part ->
+                    ThaiRomanizer.similarity(q, part)
+                } ?: 0.0
+
+                // 也检查完整拼音
+                val fullScore = ThaiRomanizer.similarity(q, rom)
+                val score = maxOf(bestScore, fullScore)
+
+                if (score >= 0.55) {
+                    scored.add(Triple(it.getString(0), it.getString(1), score))
+                }
+                if (!it.moveToNext()) break
+            }
+        }
+
+        return scored
+            .sortedByDescending { it.third }
+            .take(limit)
+            .map { it.first to it.second }
     }
 
     fun addFavorite(zh: String, lao: String) {

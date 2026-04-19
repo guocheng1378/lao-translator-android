@@ -5,6 +5,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.text.Editable
 import android.text.TextWatcher
@@ -18,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.translator.lao.data.OfflineDictionaryDb
+import com.translator.lao.data.ThaiRomanizer
 import com.translator.lao.databinding.ActivityDictionarySearchBinding
 import com.translator.lao.databinding.ItemDictionaryEntryBinding
 import java.util.Locale
@@ -30,6 +34,8 @@ class DictionarySearchActivity : AppCompatActivity() {
     private var isLaoToChinese = true
     private var tts: TextToSpeech? = null
     private var showingFavorites = false
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var isListening = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,6 +92,22 @@ class DictionarySearchActivity : AppCompatActivity() {
             showToast("历史已清空")
         }
 
+        // 语音搜索按钮
+        binding.btnVoice.setOnClickListener {
+            if (isListening) {
+                stopVoiceRecognition()
+            } else {
+                startThaiVoiceRecognition()
+            }
+        }
+
+        // 长按显示语音搜索提示
+        binding.btnVoice.setOnLongClickListener {
+            val visible = binding.tvVoiceHint.visibility == View.VISIBLE
+            binding.tvVoiceHint.visibility = if (visible) View.GONE else View.VISIBLE
+            true
+        }
+
         adapter = DictAdapter(
             onSpeak = { text, isLao ->
                 val locale = if (isLao) Locale("lo") else Locale.CHINESE
@@ -123,11 +145,25 @@ class DictionarySearchActivity : AppCompatActivity() {
         db.addHistory(query)
         binding.btnClearHistory.visibility = View.GONE
         Thread {
-            val results = db.search(query, isLaoToChinese)
+            // 常规搜索
+            val results = db.search(query, isLaoToChinese).toMutableList()
+
+            // 如果是老挝→中文模式且结果少，也尝试拼音搜索
+            if (isLaoToChinese && results.size < 5) {
+                val romResults = db.searchByRomanization(query.lowercase())
+                for (r in romResults) {
+                    if (r !in results) results.add(r)
+                }
+            }
+
             runOnUiThread {
-                adapter.submitList(results.map { Pair(it.first, it.second) })
+                adapter.submitList(results)
                 binding.tvEmpty.visibility = if (results.isEmpty()) View.VISIBLE else View.GONE
-                binding.tvEmpty.text = "未找到 \"$query\" 的结果"
+                binding.tvEmpty.text = if (results.isEmpty()) {
+                    "未找到 \"$query\" 的结果\n\n💡 可以试试：\n• 输入拼音如 sabaidee\n• 点击 🎤 用泰语语音搜索"
+                } else {
+                    ""
+                }
             }
         }.start()
     }
@@ -149,12 +185,157 @@ class DictionarySearchActivity : AppCompatActivity() {
         }.start()
     }
 
+    // ========== 泰语语音搜索 ==========
+
+    private fun startThaiVoiceRecognition() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            showToast("语音识别不可用，请检查麦克风权限")
+            return
+        }
+
+        stopVoiceRecognition()
+        isListening = true
+        binding.tvVoiceHint.visibility = View.VISIBLE
+        binding.tvVoiceHint.text = "🎤 正在听... 请用泰语说话"
+        binding.tvVoiceHint.setTextColor(getColor(android.R.color.holo_red_light))
+
+        try {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        } catch (e: Exception) {
+            showToast("创建语音识别器失败")
+            resetVoiceUI()
+            return
+        }
+
+        speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {}
+            override fun onBeginningOfSpeech() {
+                binding.tvVoiceHint.text = "🎤 正在识别..."
+            }
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() {
+                binding.tvVoiceHint.text = "⏳ 处理中..."
+            }
+
+            override fun onError(error: Int) {
+                val msg = when (error) {
+                    SpeechRecognizer.ERROR_NO_MATCH -> "未识别到语音，请重试"
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "语音超时"
+                    SpeechRecognizer.ERROR_NETWORK -> "网络错误"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "未授予麦克风权限"
+                    else -> "识别失败 (错误码: $error)"
+                }
+                showToast(msg)
+                resetVoiceUI()
+            }
+
+            override fun onResults(results: Bundle?) {
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    handleThaiSpeechResult(matches[0])
+                } else {
+                    showToast("未识别到内容")
+                }
+                resetVoiceUI()
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    binding.tvVoiceHint.text = "🎤 ${matches[0]}"
+                }
+            }
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+
+        // 使用泰语 locale
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "th-TH")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+        }
+
+        try {
+            speechRecognizer?.startListening(intent)
+        } catch (e: Exception) {
+            showToast("启动语音识别失败: ${e.message}")
+            resetVoiceUI()
+        }
+    }
+
+    private fun stopVoiceRecognition() {
+        try {
+            speechRecognizer?.stopListening()
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+        } catch (_: Exception) {}
+        speechRecognizer = null
+        isListening = false
+    }
+
+    private fun resetVoiceUI() {
+        isListening = false
+        binding.tvVoiceHint.text = "🎤 用泰语说话搜索老挝语词典（泰语和老挝语相似度约70%）"
+        binding.tvVoiceHint.setTextColor(getColor(android.R.color.darker_gray))
+    }
+
+    /**
+     * 处理泰语语音识别结果
+     */
+    private fun handleThaiSpeechResult(thaiText: String) {
+        // 将泰语文本显示在搜索框
+        binding.etSearch.setText(thaiText)
+
+        // 泰语 → 罗马拼音
+        val romanized = ThaiRomanizer.romanize(thaiText)
+        android.util.Log.d("VoiceSearch", "泰语: $thaiText → 拼音: $romanized")
+
+        if (romanized.length < 2) {
+            showToast("识别结果太短，请重试")
+            return
+        }
+
+        // 显示拼音搜索结果
+        binding.tvVoiceHint.text = "🔍 搜索: $thaiText ($romanized)"
+        binding.tvVoiceHint.visibility = View.VISIBLE
+
+        Thread {
+            // 先尝试拼音模糊匹配
+            val romResults = db.searchByRomanization(romanized)
+
+            // 也尝试直接用泰语文本搜索
+            val directResults = db.search(thaiText, isLaoToChinese)
+
+            // 合并去重
+            val allResults = mutableListOf<Pair<String, String>>()
+            allResults.addAll(romResults)
+            for (r in directResults) {
+                if (r !in allResults) allResults.add(r)
+            }
+
+            runOnUiThread {
+                if (allResults.isNotEmpty()) {
+                    adapter.submitList(allResults)
+                    binding.tvEmpty.visibility = View.GONE
+                    showToast("找到 ${allResults.size} 条结果（泰语语音匹配）")
+                } else {
+                    adapter.submitList(emptyList())
+                    binding.tvEmpty.visibility = View.VISIBLE
+                    binding.tvEmpty.text = "未找到 \"$thaiText\" ($romanized) 的匹配\n\n💡 提示：\n• 泰语和老挝语约70%相似\n• 部分老挝语独有词汇无法匹配\n• 也可直接输入拼音搜索，如 sabaidee"
+                }
+            }
+        }.start()
+    }
+
     private fun showToast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        stopVoiceRecognition()
         tts?.shutdown()
     }
 
