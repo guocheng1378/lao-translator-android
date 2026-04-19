@@ -60,9 +60,19 @@ class OfflineDictionaryDb(context: Context) : SQLiteOpenHelper(
         val count = db.rawQuery("SELECT COUNT(*) FROM $TABLE_DICT", null).use {
             it.moveToFirst(); it.getInt(0)
         }
+        // 检查已有数据的完整性：如果条目存在但拼音全部为空，说明是从 v1 升级的残留数据
         if (count > 0) {
-            android.util.Log.d("DictDb", "Dictionary already has $count entries, skipping import")
-            return
+            val romCount = db.rawQuery("SELECT COUNT(*) FROM $TABLE_DICT WHERE $COL_ROM IS NOT NULL AND $COL_ROM != ''", null).use {
+                it.moveToFirst(); it.getInt(0)
+            }
+            if (romCount == 0 && count > 0) {
+                android.util.Log.w("DictDb", "Found $count entries with no romanization, re-importing...")
+                db.execSQL("DELETE FROM $TABLE_DICT")
+                // 继续执行导入
+            } else {
+                android.util.Log.d("DictDb", "Dictionary has $count entries ($romCount with romanization), OK")
+                return
+            }
         }
 
         var imported = 0
