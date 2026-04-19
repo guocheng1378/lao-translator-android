@@ -27,10 +27,10 @@ object UpdateManager {
 
     // GitHub 镜像加速列表（按速度排序，逐个尝试）
     private val MIRRORS = listOf(
+        "",  // 优先直连
         "https://ghproxy.cn",
         "https://gh-proxy.com",
         "https://ghps.cc",
-        "",  // 最后直连
     )
 
     // version.json 多通道检查
