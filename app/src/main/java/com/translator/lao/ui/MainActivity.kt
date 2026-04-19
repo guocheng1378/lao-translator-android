@@ -36,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     private var isLaoToChinese = true
     private var isListening = false
     private var selectedCategoryIndex = -1
-    private var currentSource = TranslationApi.Source.GOOGLE
+    private var currentSource = TranslationApi.Source.MYMEMORY
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()

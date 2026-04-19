@@ -125,27 +125,27 @@
                             android:textSize="12sp" />
 
                         <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnSrcGoogle"
+                            android:id="@+id/btnSrcMyMemory"
                             style="@style/Widget.MaterialComponents.Button"
                             android:layout_width="wrap_content"
                             android:layout_height="32dp"
                             android:layout_marginStart="6dp"
-                            android:text="Google"
+                            android:text="MyMemory"
                             android:textColor="@color/text_on_primary"
-                            android:textSize="11sp"
-                            app:backgroundTint="@color/google_blue"
+                            android:textSize="10sp"
+                            app:backgroundTint="@color/mymemory_orange"
                             app:cornerRadius="16dp" />
 
                         <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnSrcMyMemory"
+                            android:id="@+id/btnSrcGoogle"
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                             android:layout_width="wrap_content"
                             android:layout_height="32dp"
                             android:layout_marginStart="6dp"
-                            android:text="MyMemory"
-                            android:textSize="10sp"
+                            android:text="Google"
+                            android:textSize="11sp"
                             app:cornerRadius="16dp"
-                            app:strokeColor="@color/mymemory_orange"
+                            app:strokeColor="@color/google_blue"
                             app:strokeWidth="1.5dp" />
                     </LinearLayout>
                 </HorizontalScrollView>
