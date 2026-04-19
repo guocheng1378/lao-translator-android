@@ -1,12 +1,17 @@
 package com.translator.lao.ui
 
 import android.Manifest
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -24,6 +29,7 @@ import com.translator.lao.data.Dictionary
 import com.translator.lao.data.DictionaryStore
 import com.translator.lao.databinding.ActivityMainBinding
 import com.translator.lao.speech.SpeechManager
+import com.translator.lao.update.UpdateManager
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -37,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private var isListening = false
     private var selectedCategoryIndex = -1
     private var currentSource = TranslationApi.Source.MYMEMORY
+    private var pendingDownloadId: Long = -1L
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -159,6 +166,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupActionButtons() {
+        binding.btnCheckUpdate.setOnClickListener {
+            checkForUpdate()
+        }
+
         binding.btnTranslate.setOnClickListener {
             val text = binding.etSource.text.toString().trim()
             if (text.isNotEmpty()) performTranslation(text)
@@ -448,6 +459,71 @@ class MainActivity : AppCompatActivity() {
                 binding.tvResult.text = "翻译失败: ${error.message}"
                 binding.tvResult.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_red))
             }
+        }
+    }
+
+    // ==================== 在线更新 ====================
+
+    private fun checkForUpdate() {
+        if (!isNetworkAvailable()) {
+            showToast("请连接网络后检查更新")
+            return
+        }
+
+        showToast("正在检查更新...")
+        lifecycleScope.launch {
+            UpdateManager.checkForUpdate(this@MainActivity).onSuccess { info ->
+                if (info != null) {
+                    showUpdateDialog(info)
+                } else {
+                    showToast("已是最新版本")
+                }
+            }.onFailure { error ->
+                showToast(error.message ?: "检查更新失败")
+            }
+        }
+    }
+
+    private fun showUpdateDialog(info: UpdateManager.UpdateInfo) {
+        val size = UpdateManager.formatFileSize(info.fileSize)
+        val msg = buildString {
+            appendLine("发现新版本: ${info.versionName}")
+            appendLine("大小: $size")
+            appendLine()
+            appendLine("更新内容:")
+            appendLine(info.changelog)
+        }
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("🎉 有新版本可用")
+            .setMessage(msg)
+            .setPositiveButton("立即更新") { _, _ ->
+                startDownload(info)
+            }
+            .setNegativeButton("稍后", null)
+            .show()
+    }
+
+    private fun startDownload(info: UpdateManager.UpdateInfo) {
+        showToast("开始下载更新...")
+        pendingDownloadId = UpdateManager.downloadApk(this, info.apkUrl, info.versionName)
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+                if (id == pendingDownloadId) {
+                    unregisterReceiver(this)
+                    showToast("下载完成，正在安装...")
+                    UpdateManager.installApk(this@MainActivity, pendingDownloadId)
+                    pendingDownloadId = -1L
+                }
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
         }
     }
 

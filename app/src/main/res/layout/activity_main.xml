@@ -56,6 +56,17 @@
                     android:textColor="@color/text_hint"
                     android:textSize="11sp" />
             </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnCheckUpdate"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:text="🔄"
+                android:textSize="18sp"
+                app:cornerRadius="16dp" />
+
         </LinearLayout>
 
         <!-- ===== 模式切换 ===== -->
