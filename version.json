@@ -1,7 +1,7 @@
 {
-  "versionCode": 104,
-  "versionName": "v1.4",
-  "apkUrl": "https://github.com/guocheng1378/lao-translator-android/releases/download/v1.4/app-release-unsigned.apk",
-  "changelog": "修复标题栏图标显示不全的问题\n优化标题栏布局，图标和文字并排显示\n新增翻译历史记录，支持搜索和管理\n新增收藏功能，翻译结果可一键收藏\n分类词库支持收藏词条",
-  "fileSize": 0
+  "versionCode": 105,
+  "versionName": "v1.5",
+  "apkUrl": "https://github.com/guocheng1378/lao-translator-android/releases/download/v1.5/app-release-unsigned.apk",
+  "changelog": "修复标题栏图标显示不全的问题\n优化标题栏布局，图标和文字并排显示",
+  "fileSize": 46472667
 }
