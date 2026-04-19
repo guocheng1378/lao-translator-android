@@ -28,10 +28,12 @@ object UpdateManager {
     private const val REPO_OWNER = "guocheng1378"
     private const val REPO_NAME = "lao-translator-android"
     private val GITHUB_API_URL = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
+    // 国内加速镜像（gh-proxy）
+    private const val MIRROR_PREFIX = "https://gh-proxy.com/"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
     data class UpdateInfo(
@@ -73,17 +75,32 @@ object UpdateManager {
      */
     suspend fun checkForUpdate(context: Context): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
         try {
-            val resp = client.newCall(
-                Request.Builder()
-                    .url(GITHUB_API_URL)
-                    .header("Accept", "application/vnd.github.v3+json")
-                    .header("User-Agent", "LaoTranslator-Android")
-                    .get().build()
-            ).execute()
+            // 先尝试直连，失败后用镜像
+            val urls = listOf(
+                GITHUB_API_URL,
+                MIRROR_PREFIX + GITHUB_API_URL,
+            )
+            var body = ""
+            var success = false
+            for (url in urls) {
+                try {
+                    val resp = client.newCall(
+                        Request.Builder()
+                            .url(url)
+                            .header("Accept", "application/vnd.github.v3+json")
+                            .header("User-Agent", "LaoTranslator-Android")
+                            .get().build()
+                    ).execute()
+                    body = resp.body?.string() ?: ""
+                    if (resp.isSuccessful && body.isNotEmpty()) {
+                        success = true
+                        break
+                    }
+                } catch (_: Exception) { }
+            }
 
-            val body = resp.body?.string() ?: ""
-            if (!resp.isSuccessful || body.isEmpty()) {
-                return@withContext Result.failure(Exception("检查更新失败: HTTP ${resp.code}"))
+            if (!success || body.isEmpty()) {
+                return@withContext Result.failure(Exception("检查更新失败，请检查网络"))
             }
 
             val json = org.json.JSONObject(body)
@@ -154,7 +171,13 @@ object UpdateManager {
      */
     fun downloadApk(context: Context, url: String, versionName: String): Long {
         val fileName = "lao-translator-$versionName.apk"
-        val request = DownloadManager.Request(Uri.parse(url))
+        // 国内使用镜像加速下载
+        val downloadUrl = if (url.contains("github.com")) {
+            MIRROR_PREFIX + url
+        } else {
+            url
+        }
+        val request = DownloadManager.Request(Uri.parse(downloadUrl))
             .setTitle("老挝语翻译器 更新")
             .setDescription("正在下载版本 $versionName")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
