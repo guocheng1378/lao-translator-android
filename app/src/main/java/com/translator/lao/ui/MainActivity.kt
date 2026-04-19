@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var speechManager: SpeechManager
     private lateinit var favoritesStore: FavoritesStore
+    private lateinit var historyStore: HistoryStore
 
     private var isOfflineMode = true
     private var isLaoToChinese = true
@@ -64,6 +65,7 @@ class MainActivity : AppCompatActivity() {
 
         speechManager = SpeechManager(this)
         favoritesStore = FavoritesStore(this)
+        historyStore = HistoryStore(this)
 
         initUI()
         updateNetworkStatus()
@@ -258,6 +260,10 @@ class MainActivity : AppCompatActivity() {
         binding.btnSpeakResult.setOnClickListener {
             val text = binding.tvResult.text.toString()
             if (text.isNotEmpty() && text != getString(R.string.translating)) {
+                if (speechManager.isSpeaking()) {
+                    speechManager.stopSpeaking()
+                    return@setOnClickListener
+                }
                 if (!speechManager.isTtsAvailable()) {
                     android.app.AlertDialog.Builder(this)
                         .setTitle("语音播报不可用")
@@ -489,7 +495,7 @@ class MainActivity : AppCompatActivity() {
             // 保存历史
             val fromLang = if (isLaoToChinese) "lo" else "zh"
             val toLang = if (isLaoToChinese) "zh" else "lo"
-            HistoryStore(this).saveHistory(text, translated, fromLang, toLang)
+            historyStore.saveHistory(text, translated, fromLang, toLang)
             updateFavoriteButton()
         } else {
             lastResultText = ""
@@ -517,7 +523,7 @@ class MainActivity : AppCompatActivity() {
                 // 保存历史
                 val fromLang = if (isLaoToChinese) "lo" else "zh"
                 val toLang = if (isLaoToChinese) "zh" else "lo"
-                HistoryStore(this@MainActivity).saveHistory(text, translated, fromLang, toLang)
+                historyStore.saveHistory(text, translated, fromLang, toLang)
                 updateFavoriteButton()
             }.onFailure { error ->
                 lastResultText = ""
