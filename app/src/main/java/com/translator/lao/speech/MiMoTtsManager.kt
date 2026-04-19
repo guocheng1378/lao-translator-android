@@ -28,8 +28,7 @@ class MiMoTtsManager(private val context: Context) {
 
     companion object {
         private const val TAG = "EdgeTts"
-        // TODO: 部署 openai-edge-tts 后改成你的服务地址
-        private const val ENDPOINT = "http://localhost:5050/v1/audio/speech"
+        private const val ENDPOINT = "https://miniature-fonts-belts-tracking.trycloudflare.com/v1/audio/speech"
         private const val API_KEY = ""  // 留空 = 不需要认证
 
         // 中文语音: zh-CN-XiaoxiaoNeural（女声，自然）
