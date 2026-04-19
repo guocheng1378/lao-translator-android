@@ -46,7 +46,7 @@
             android:id="@+id/tvDirection"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="老挝语 → 中文"
+            android:text="@string/ocr_direction_lao_zh"
             android:textSize="14sp"
             android:textColor="@color/text_primary" />
 
@@ -222,7 +222,7 @@
             android:layout_height="52dp"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
-            android:text="翻译"
+            android:text="@string/ocr_btn_translate"
             app:icon="@drawable/ic_translate"
             app:backgroundTint="@color/primary"
             app:cornerRadius="26dp" />
