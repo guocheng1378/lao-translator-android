@@ -11,8 +11,8 @@ android {
         applicationId = "com.translator.lao"
         minSdk = 24
         targetSdk = 34
-        versionCode = 202
-        versionName = "2.2"
+        versionCode = 203
+        versionName = "2.3"
     }
 
     buildTypes {
