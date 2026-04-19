@@ -11,9 +11,10 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:paddingHorizontal="16dp"
-        android:paddingBottom="16dp">
+        android:paddingBottom="32dp"
+        android:fitsSystemWindows="true">
 
-        <!-- ===== 顶栏 ===== -->
+        <!-- 顶栏 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -26,13 +27,13 @@
                 android:layout_height="28dp"
                 android:src="@drawable/ic_translate"
                 app:tint="@color/primary"
-                android:contentDescription="应用图标" />
+                android:contentDescription="@string/app_name" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:text="老挝语翻译器"
+                android:text="@string/title_app"
                 android:maxLines="1"
                 android:textColor="@color/primary"
                 android:textSize="20sp"
@@ -60,7 +61,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
-                    android:text="已联网"
+                    android:text="@string/network_online"
                     android:textColor="@color/text_hint"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -95,7 +96,7 @@
 
         </LinearLayout>
 
-        <!-- ===== 模式切换 ===== -->
+        <!-- 模式切换 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -120,7 +121,7 @@
                         android:layout_width="0dp"
                         android:layout_height="42dp"
                         android:layout_weight="1"
-                        android:text="📖 离线词典"
+                        android:text="@string/mode_offline"
                         android:textSize="13sp"
                         app:backgroundTint="@color/offline_active"
                         app:cornerRadius="10dp" />
@@ -132,7 +133,7 @@
                         android:layout_height="42dp"
                         android:layout_marginStart="4dp"
                         android:layout_weight="1"
-                        android:text="🌐 在线翻译"
+                        android:text="@string/mode_online"
                         android:textSize="13sp"
                         app:backgroundTint="@color/offline_inactive"
                         app:cornerRadius="10dp" />
@@ -157,7 +158,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="翻译源:"
+                            android:text="@string/source_label"
                             android:textColor="@color/text_hint"
                             android:textSize="12sp" />
 
@@ -167,7 +168,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="32dp"
                             android:layout_marginStart="6dp"
-                            android:text="MyMemory"
+                            android:text="@string/source_mymemory"
                             android:textColor="@color/text_on_primary"
                             android:textSize="10sp"
                             app:backgroundTint="@color/mymemory_orange"
@@ -179,17 +180,41 @@
                             android:layout_width="wrap_content"
                             android:layout_height="32dp"
                             android:layout_marginStart="6dp"
-                            android:text="Google"
+                            android:text="@string/source_google"
                             android:textSize="11sp"
                             app:cornerRadius="16dp"
                             app:strokeColor="@color/google_blue"
+                            app:strokeWidth="1.5dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSrcBing"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="6dp"
+                            android:text="@string/source_bing"
+                            android:textSize="11sp"
+                            app:cornerRadius="16dp"
+                            app:strokeColor="@color/bing_green"
+                            app:strokeWidth="1.5dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSrcLibre"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:layout_marginStart="6dp"
+                            android:text="@string/source_libre"
+                            android:textSize="11sp"
+                            app:cornerRadius="16dp"
+                            app:strokeColor="@color/libre_purple"
                             app:strokeWidth="1.5dp" />
                     </LinearLayout>
                 </HorizontalScrollView>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 快捷入口 ===== -->
+        <!-- 快捷入口 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -203,7 +228,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
-                android:text="📷 拍照翻译"
+                android:text="@string/btn_ocr"
                 android:textSize="13sp"
                 app:cornerRadius="22dp"
                 app:strokeColor="@color/primary"
@@ -216,14 +241,14 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
-                android:text="🔍 词典搜索"
+                android:text="@string/btn_dictionary"
                 android:textSize="13sp"
                 app:cornerRadius="22dp"
                 app:strokeColor="@color/primary"
                 app:strokeWidth="1.5dp" />
         </LinearLayout>
 
-        <!-- ===== 语言方向 ===== -->
+        <!-- 语言方向 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -245,7 +270,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:gravity="center"
-                    android:text="🇱🇦 老挝语"
+                    android:text="@string/source_lang_lao"
                     android:textColor="@color/text_primary"
                     android:textSize="15sp"
                     android:textStyle="bold" />
@@ -268,14 +293,14 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:gravity="center"
-                    android:text="🇨🇳 中文"
+                    android:text="@string/target_lang_zh"
                     android:textColor="@color/text_primary"
                     android:textSize="15sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 输入区域 ===== -->
+        <!-- 输入区域 -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -295,7 +320,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:background="@null"
-                    android:hint="输入文字或点击🎤说话…"
+                    android:hint="@string/input_hint"
                     android:inputType="textMultiLine"
                     android:minHeight="72dp"
                     android:textColor="@color/text_body"
@@ -309,14 +334,13 @@
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
-                    <!-- 🎤 麦克风按钮 -->
                     <ImageButton
                         android:id="@+id/btnVoice"
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:background="@drawable/bg_circle"
                         android:backgroundTint="@color/primary"
-                        android:contentDescription="语音输入"
+                        android:contentDescription="@string/listening"
                         android:padding="12dp"
                         android:src="@drawable/ic_mic"
                         app:tint="@android:color/white" />
@@ -326,7 +350,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="正在聆听…"
+                        android:text="@string/listening"
                         android:textColor="@color/accent_red"
                         android:textSize="13sp"
                         android:visibility="gone" />
@@ -336,7 +360,6 @@
                         android:layout_height="0dp"
                         android:layout_weight="1" />
 
-                    <!-- 清空 -->
                     <ImageButton
                         android:id="@+id/btnClear"
                         android:layout_width="40dp"
@@ -347,14 +370,13 @@
                         android:src="@drawable/ic_clear"
                         app:tint="@color/text_hint" />
 
-                    <!-- 翻译 -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnTranslate"
                         android:layout_width="wrap_content"
                         android:layout_height="42dp"
                         android:layout_marginStart="8dp"
                         android:paddingHorizontal="20dp"
-                        android:text="翻译"
+                        android:text="@string/btn_translate"
                         android:textColor="@color/text_on_primary"
                         android:textSize="14sp"
                         app:backgroundTint="@color/primary"
@@ -363,7 +385,18 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 翻译结果 ===== -->
+        <!-- 首次打开空状态引导 -->
+        <TextView
+            android:id="@+id/tvEmptyStateHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center"
+            android:text="@string/empty_state_hint"
+            android:textColor="@color/text_hint"
+            android:textSize="14sp" />
+
+        <!-- 翻译结果 -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardResult"
             android:layout_width="match_parent"
@@ -403,37 +436,34 @@
                     android:gravity="end"
                     android:orientation="horizontal">
 
-                    <!-- 复制 -->
                     <ImageButton
                         android:id="@+id/btnCopy"
                         android:layout_width="40dp"
                         android:layout_height="40dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="复制"
+                        android:contentDescription="@string/copied"
                         android:padding="8dp"
                         android:src="@drawable/ic_copy"
                         app:tint="@color/text_hint" />
 
-                    <!-- 🔊 朗读按钮 -->
                     <ImageButton
                         android:id="@+id/btnSpeakResult"
                         android:layout_width="40dp"
                         android:layout_height="40dp"
                         android:layout_marginStart="4dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="朗读"
+                        android:contentDescription="@string/tts_speaking"
                         android:padding="8dp"
                         android:src="@drawable/ic_speaker"
                         app:tint="@color/primary" />
 
-                    <!-- ⭐ 收藏按钮 -->
                     <ImageButton
                         android:id="@+id/btnFavoriteResult"
                         android:layout_width="40dp"
                         android:layout_height="40dp"
                         android:layout_marginStart="4dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="收藏"
+                        android:contentDescription="@string/favorited"
                         android:padding="8dp"
                         android:src="@drawable/ic_star"
                         app:tint="@color/text_hint" />
@@ -441,7 +471,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 分类词库 ===== -->
+        <!-- 分类词库 -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardCategories"
             android:layout_width="match_parent"
@@ -460,7 +490,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="📚 分类词库"
+                    android:text="@string/category_title"
                     android:textColor="@color/primary"
                     android:textSize="15sp"
                     android:textStyle="bold" />
@@ -493,7 +523,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:gravity="center"
-            android:text="离线词典无需联网 · 在线翻译支持 Google / Bing / Auto"
+            android:text="@string/footer_text"
             android:textColor="@color/text_hint"
             android:textSize="11sp" />
 
