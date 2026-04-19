@@ -6,15 +6,16 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.speech.tts.TextToSpeech
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
  * 语音管理器
- * - 支持小米/华为等国产手机（不依赖 Google 语音服务）
- * - SpeechRecognizer 不可用时提示用户用键盘语音
- * - TTS 不可用时提示用户复制文字
+ *
+ * - 语音识别：系统 SpeechRecognizer（国内手机可能不可用）
+ * - 语音合成：MiMo TTS API（无限制，支持中老双语）
  */
 class SpeechManager(private val context: Context) {
 
@@ -23,11 +24,9 @@ class SpeechManager(private val context: Context) {
     }
 
     private var speechRecognizer: SpeechRecognizer? = null
-    private var textToSpeech: TextToSpeech? = null
-    private var ttsInitialized = false
-    private var ttsInitStatus = -99
+    private val miMoTts = MiMoTtsManager(context)
 
-    // ========== 语音识别 ==========
+    // ========== 语音识别（保持原有逻辑） ==========
 
     interface RecognitionCallback {
         fun onResult(text: String)
@@ -36,14 +35,12 @@ class SpeechManager(private val context: Context) {
         fun onEndOfSpeech()
     }
 
-    /** 检查语音识别是否可用 */
     fun isRecognitionAvailable(): Boolean {
         val available = SpeechRecognizer.isRecognitionAvailable(context)
         Log.d(TAG, "SpeechRecognizer available: $available")
         return available
     }
 
-    /** 获取不可用的原因 */
     fun getRecognitionUnavailableReason(): String {
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             return "当前设备不支持语音识别\n\n可能原因：\n1. 未安装 Google 语音服务（国内手机常见）\n2. 未授予麦克风权限\n\n建议：使用手机键盘自带的🎤语音输入"
@@ -55,9 +52,7 @@ class SpeechManager(private val context: Context) {
         stopListening()
 
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            val reason = getRecognitionUnavailableReason()
-            Log.w(TAG, "Recognition not available: $reason")
-            callback.onError(reason)
+            callback.onError(getRecognitionUnavailableReason())
             return
         }
 
@@ -75,19 +70,11 @@ class SpeechManager(private val context: Context) {
         }
 
         speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                Log.d(TAG, "onReadyForSpeech")
-            }
-            override fun onBeginningOfSpeech() {
-                Log.d(TAG, "onBeginningOfSpeech")
-                callback.onBeginOfSpeech()
-            }
+            override fun onReadyForSpeech(params: Bundle?) {}
+            override fun onBeginningOfSpeech() { callback.onBeginOfSpeech() }
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {
-                Log.d(TAG, "onEndOfSpeech")
-                callback.onEndOfSpeech()
-            }
+            override fun onEndOfSpeech() { callback.onEndOfSpeech() }
 
             override fun onError(error: Int) {
                 val msg = when (error) {
@@ -101,13 +88,11 @@ class SpeechManager(private val context: Context) {
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "语音超时，请重新说话"
                     else -> "识别失败 (错误码: $error)"
                 }
-                Log.e(TAG, "Recognition error: $error - $msg")
                 callback.onError(msg)
             }
 
             override fun onResults(results: Bundle?) {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                Log.d(TAG, "onResults: $matches")
                 if (!matches.isNullOrEmpty()) {
                     callback.onResult(matches[0])
                 } else {
@@ -124,14 +109,11 @@ class SpeechManager(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale.toLanguageTag())
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
         }
 
         try {
             speechRecognizer?.startListening(intent)
-            Log.d(TAG, "startListening called with locale: ${locale.toLanguageTag()}")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start listening", e)
             callback.onError("启动语音识别失败：${e.message}")
         }
     }
@@ -140,100 +122,56 @@ class SpeechManager(private val context: Context) {
         try {
             speechRecognizer?.stopListening()
             speechRecognizer?.destroy()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping listener", e)
-        }
+        } catch (_: Exception) {}
         speechRecognizer = null
     }
 
-    // ========== 语音合成 ==========
+    // ========== 语音合成（MiMo TTS） ==========
 
-    /** 检查 TTS 是否可用 */
-    fun isTtsAvailable(): Boolean = ttsInitialized
-
-    /** 获取 TTS 状态描述 */
-    fun getTtsStatus(): String = when (ttsInitStatus) {
-        TextToSpeech.SUCCESS -> "TTS 已就绪"
-        TextToSpeech.ERROR -> "TTS 初始化失败"
-        TextToSpeech.ERROR_INVALID_REQUEST -> "无效请求"
-        TextToSpeech.ERROR_NETWORK -> "网络错误"
-        TextToSpeech.ERROR_NETWORK_TIMEOUT -> "网络超时"
-        TextToSpeech.ERROR_NOT_INSTALLED_YET -> "TTS 引擎未安装"
-        TextToSpeech.ERROR_OUTPUT -> "输出错误"
-        TextToSpeech.ERROR_SERVICE -> "TTS 服务错误"
-        TextToSpeech.ERROR_SYNTHESIS -> "合成错误"
-        -99 -> "TTS 未初始化"
-        else -> "TTS 状态未知 ($ttsInitStatus)"
+    interface TtsCallback {
+        fun onComplete()
+        fun onError(error: String)
     }
 
+    /** MiMo TTS 始终可用（key 写死在代码里） */
+    fun isTtsAvailable(): Boolean = miMoTts.isAvailable()
+
+    /** 兼容旧接口 */
     fun initTts(onReady: ((Boolean) -> Unit)? = null) {
-        Log.d(TAG, "Initializing TTS...")
-        textToSpeech = TextToSpeech(context) { status ->
-            ttsInitStatus = status
-            ttsInitialized = status == TextToSpeech.SUCCESS
-            Log.d(TAG, "TTS init result: $status (${getTtsStatus()})")
-
-            if (ttsInitialized) {
-                // 设置默认语言
-                val langResult = textToSpeech?.setLanguage(Locale.CHINESE)
-                Log.d(TAG, "TTS set Chinese: $langResult")
-
-                // 获取可用语音列表
-                val voices = textToSpeech?.voices
-                Log.d(TAG, "Available voices: ${voices?.size}")
-                voices?.forEach { v ->
-                    Log.d(TAG, "  Voice: ${v.name} (${v.locale})")
-                }
-            }
-
-            onReady?.invoke(ttsInitialized)
-        }
+        onReady?.invoke(true)
     }
 
-    fun speak(text: String, locale: Locale = Locale.CHINESE) {
-        Log.d(TAG, "speak: '$text' locale=$locale ttsInit=$ttsInitialized")
+    fun getTtsStatus(): String = "MiMo TTS 已就绪"
 
-        if (!ttsInitialized) {
-            Log.w(TAG, "TTS not initialized, trying to init...")
-            initTts { success ->
-                if (success) doSpeak(text, locale)
-                else Log.e(TAG, "TTS init failed, cannot speak")
-            }
-            return
+    /**
+     * 语音播报（suspend，需要在 lifecycleScope.launch 中调用）
+     *
+     * @param text 要播报的文字
+     * @param locale 语言（自动判断中文/老挝语，传入即可）
+     */
+    suspend fun speak(
+        text: String,
+        locale: Locale = Locale.CHINESE,
+        callback: TtsCallback? = null
+    ) = withContext(Dispatchers.IO) {
+        if (text.isBlank()) {
+            withContext(Dispatchers.Main) { callback?.onError("文字为空") }
+            return@withContext
         }
-        doSpeak(text, locale)
+
+        miMoTts.speak(text, callback = object : MiMoTtsManager.TtsCallback {
+            override fun onComplete() = callback?.onComplete() ?: Unit
+            override fun onError(error: String) = callback?.onError(error) ?: Unit
+        })
     }
 
-    private fun doSpeak(text: String, locale: Locale) {
-        try {
-            textToSpeech?.stop()
-
-            val langResult = textToSpeech?.setLanguage(locale)
-            Log.d(TAG, "setLanguage($locale) result: $langResult")
-
-            // 如果指定语言不可用，尝试用中文
-            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.w(TAG, "Language $locale not supported, falling back to Chinese")
-                textToSpeech?.setLanguage(Locale.CHINESE)
-            }
-
-            textToSpeech?.setSpeechRate(0.9f)
-            val speakResult = textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts_${System.currentTimeMillis()}")
-            Log.d(TAG, "speak result: $speakResult")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error speaking", e)
-        }
-    }
-
+    /** 停止播报 */
     fun stopSpeaking() {
-        textToSpeech?.stop()
+        miMoTts.stop()
     }
 
     fun release() {
         stopListening()
-        textToSpeech?.stop()
-        textToSpeech?.shutdown()
-        textToSpeech = null
-        ttsInitialized = false
+        miMoTts.release()
     }
 }
