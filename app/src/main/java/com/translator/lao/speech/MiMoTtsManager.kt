@@ -12,6 +12,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
+import java.net.InetAddress
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -28,7 +30,7 @@ class MiMoTtsManager(private val context: Context) {
 
     companion object {
         private const val TAG = "EdgeTts"
-        // 飞牛 NAS TTS 服务（内网地址，外网需端口转发）
+        // 飞牛 NAS TTS 服务（Tailscale 内网地址）
         private const val ENDPOINT = "https://guo.tail7aa8e0.ts.net/v1/audio/speech"
         private const val API_KEY = ""  // 留空 = 不需要认证
 
@@ -36,6 +38,13 @@ class MiMoTtsManager(private val context: Context) {
         private const val VOICE_ZH = "zh-CN-XiaoxiaoNeural"
         // 老挝语语音: lo-LA-KeomanyNeural
         private const val VOICE_LO = "lo-LA-KeomanyNeural"
+
+        // 从 ENDPOINT 提取主机名，用于连通性检测
+        private val HOST: String = try {
+            java.net.URI(ENDPOINT).host ?: "guo.tail7aa8e0.ts.net"
+        } catch (_: Exception) {
+            "guo.tail7aa8e0.ts.net"
+        }
     }
 
     interface TtsCallback {
@@ -51,7 +60,53 @@ class MiMoTtsManager(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
     private var isLao = false  // 由 speak 调用时设置
 
-    fun isAvailable(): Boolean = true
+    // 连通性检测缓存（避免频繁 DNS 查询）
+    @Volatile
+    private var lastCheckTime = 0L
+    @Volatile
+    private var lastCheckResult = false
+    private val CHECK_CACHE_MS = 30_000L // 30秒缓存
+
+    /**
+     * 检测 TTS 服务是否可达
+     * 通过 DNS 解析判断设备是否在 Tailscale 网络中
+     */
+    fun isReachable(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastCheckTime < CHECK_CACHE_MS) {
+            return lastCheckResult
+        }
+
+        val result = try {
+            InetAddress.getByName(HOST)
+            true
+        } catch (e: UnknownHostException) {
+            Log.w(TAG, "DNS resolution failed for $HOST: ${e.message}")
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "Reachability check failed: ${e.message}")
+            false
+        }
+
+        lastCheckTime = now
+        lastCheckResult = result
+        return result
+    }
+
+    /**
+     * 获取不可达原因的用户友好描述
+     */
+    fun getUnreachableReason(): String {
+        return "语音合成服务不可达\n\n" +
+                "当前使用 Tailscale 内网地址 ($HOST)\n\n" +
+                "解决方法：\n" +
+                "1. 安装 Tailscale App 并登录同一网络\n" +
+                "2. 确认 Tailscale 已连接且 MagicDNS 已启用\n" +
+                "3. 或联系开发者配置公网 TTS 服务\n\n" +
+                "已自动切换为系统语音引擎播报"
+    }
+
+    fun isAvailable(): Boolean = isReachable()
 
     /**
      * 设置语言方向
@@ -80,6 +135,14 @@ class MiMoTtsManager(private val context: Context) {
                 return@withContext
             }
 
+            // 先检测连通性
+            if (!isReachable()) {
+                withContext(Dispatchers.Main) {
+                    callback?.onError("服务不可达：$HOST 无法解析，请检查 Tailscale 连接")
+                }
+                return@withContext
+            }
+
             val trimmedText = if (text.length > 500) text.take(500) else text
             val voice = if (isLao) VOICE_LO else VOICE_ZH
 
@@ -100,13 +163,45 @@ class MiMoTtsManager(private val context: Context) {
                 reqBuilder.addHeader("Authorization", "Bearer $API_KEY")
             }
 
-            val response = client.newCall(reqBuilder.build()).execute()
+            val response = try {
+                client.newCall(reqBuilder.build()).execute()
+            } catch (e: java.net.UnknownHostException) {
+                Log.e(TAG, "Network error: cannot resolve $HOST", e)
+                withContext(Dispatchers.Main) {
+                    callback?.onError("网络错误：无法连接到 TTS 服务 ($HOST)，请检查 Tailscale 连接")
+                }
+                return@withContext
+            } catch (e: java.net.SocketTimeoutException) {
+                Log.e(TAG, "Timeout connecting to $HOST", e)
+                withContext(Dispatchers.Main) {
+                    callback?.onError("连接超时：TTS 服务响应过慢，请检查网络")
+                }
+                return@withContext
+            } catch (e: java.net.ConnectException) {
+                Log.e(TAG, "Connection refused to $HOST", e)
+                withContext(Dispatchers.Main) {
+                    callback?.onError("连接被拒绝：TTS 服务未启动或不可达")
+                }
+                return@withContext
+            } catch (e: javax.net.ssl.SSLException) {
+                Log.e(TAG, "SSL error for $HOST", e)
+                withContext(Dispatchers.Main) {
+                    callback?.onError("SSL 错误：Tailscale 证书问题，请检查 Tailscale 连接状态")
+                }
+                return@withContext
+            } catch (e: Exception) {
+                Log.e(TAG, "HTTP request failed", e)
+                withContext(Dispatchers.Main) {
+                    callback?.onError("网络错误：${e.javaClass.simpleName} - ${e.message}")
+                }
+                return@withContext
+            }
 
             if (!response.isSuccessful) {
                 val errBody = response.body?.string() ?: ""
                 Log.e(TAG, "HTTP ${response.code}: $errBody")
                 withContext(Dispatchers.Main) {
-                    callback?.onError("合成失败：HTTP ${response.code}")
+                    callback?.onError("合成失败：HTTP ${response.code} ${errBody.take(100)}")
                 }
                 return@withContext
             }
@@ -123,7 +218,7 @@ class MiMoTtsManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "TTS error", e)
             withContext(Dispatchers.Main) {
-                callback?.onError("语音合成出错：${e.message}")
+                callback?.onError("语音合成出错：${e.javaClass.simpleName} - ${e.message}")
             }
         }
     }
