@@ -241,22 +241,21 @@ class SpeechManager(private val context: Context) {
     fun isEdgeTtsAvailable(): Boolean = edgeTts.isAvailable()
 
     /**
-     * 异步初始化系统 TTS 作为 fallback
+     * 初始化 TTS
+     *
+     * 始终初始化系统 TTS 作为 fallback，不依赖 isReachable() 判断。
+     * Edge TTS 的可用性由 speak() 时动态判断，失败自动 fallback。
      */
     fun initTts(onReady: ((Boolean) -> Unit)? = null) {
-        // 先检测 Edge TTS
         val edgeAvailable = edgeTts.isAvailable()
-        Log.d(TAG, "Edge TTS available: $edgeAvailable")
+        Log.d(TAG, "Edge TTS probe: $edgeAvailable")
 
-        if (edgeAvailable) {
-            onReady?.invoke(true)
-            // 后台初始化系统 TTS 作为备用
-            initSystemTts()
-            return
+        // 始终初始化系统 TTS 作为 fallback（不依赖 Edge TTS 是否可达）
+        initSystemTts { sysReady ->
+            // 只要系统 TTS 可用就认为 TTS 整体可用
+            // Edge TTS 作为加分项，有就用高质量语音，没有就用系统语音
+            onReady?.invoke(sysReady || edgeAvailable)
         }
-
-        // Edge TTS 不可用，初始化系统 TTS
-        initSystemTts(onReady)
     }
 
     private fun initSystemTts(onReady: ((Boolean) -> Unit)? = null) {
@@ -264,7 +263,7 @@ class SpeechManager(private val context: Context) {
             systemTts = TextToSpeech(context) { status ->
                 systemTtsReady = (status == TextToSpeech.SUCCESS)
                 Log.d(TAG, "System TTS init: status=$status, ready=$systemTtsReady")
-                onReady?.invoke(systemTtsReady || edgeTts.isAvailable())
+                onReady?.invoke(systemTtsReady)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to init system TTS", e)
@@ -332,12 +331,7 @@ class SpeechManager(private val context: Context) {
     ) {
         if (!systemTtsReady || systemTts == null) {
             // 系统 TTS 也不可用
-            val reason = if (!edgeTts.isAvailable()) {
-                edgeTts.getUnreachableReason()
-            } else {
-                "语音播报不可用"
-            }
-            callback?.onError(reason)
+            callback?.onError("语音播报不可用\n\n系统 TTS 未就绪，请检查设备 TTS 设置")
             return
         }
 
