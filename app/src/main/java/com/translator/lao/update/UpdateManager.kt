@@ -24,13 +24,21 @@ object UpdateManager {
 
     private const val REPO_OWNER = "guocheng1378"
     private const val REPO_NAME = "lao-translator-android"
-    private const val MIRROR_PREFIX = "https://gh-proxy.com/"
 
-    // version.json 双通道：先镜像，后备直连
-    private val VERSION_URLS = listOf(
-        "$MIRROR_PREFIX https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json".replace(" ", ""),
-        "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
+    // GitHub 镜像加速列表（按速度排序，逐个尝试）
+    private val MIRRORS = listOf(
+        "https://ghproxy.cn",
+        "https://gh-proxy.com",
+        "https://ghps.cc",
+        "",  // 最后直连
     )
+
+    // version.json 多通道检查
+    private val VERSION_URLS: List<String>
+        get() = MIRRORS.map { mirror ->
+            val raw = "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json"
+            if (mirror.isNotEmpty()) "$mirror/$raw" else raw
+        }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -114,7 +122,12 @@ object UpdateManager {
 
     fun downloadApk(context: Context, url: String, versionName: String): Long {
         val fileName = "lao-translator-$versionName.apk"
-        val downloadUrl = if (url.contains("github.com")) MIRROR_PREFIX + url else url
+        // 优先用镜像下载 GitHub 资源
+        val downloadUrl = if (url.contains("github.com") || url.contains("githubusercontent.com")) {
+            // 找到第一个可用镜像前缀
+            val mirror = MIRRORS.firstOrNull { it.isNotEmpty() } ?: ""
+            if (mirror.isNotEmpty()) "$mirror/$url" else url
+        } else url
         val request = DownloadManager.Request(Uri.parse(downloadUrl))
             .setTitle("老挝语翻译器 更新")
             .setDescription("正在下载版本 $versionName")
