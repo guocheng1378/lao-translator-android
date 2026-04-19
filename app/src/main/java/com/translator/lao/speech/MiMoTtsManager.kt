@@ -4,15 +4,14 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.util.Log
+import com.translator.lao.api.HttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /**
  * 语音合成（TTS）— 中文 + 老挝语播报
@@ -50,24 +49,16 @@ class MiMoTtsManager(private val context: Context) {
         fun onError(error: String)
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
-
+    private val client get() = HttpClient.tts
     private var mediaPlayer: MediaPlayer? = null
     private var isLao = false
 
     /**
      * 始终返回 true，不做过滤。
      * 实际可用性由 speak() 的 HTTP 请求和异常处理来判断。
-     * 这样 SpeechManager 总会尝试 Edge TTS，失败时自动 fallback 系统 TTS。
      */
     fun isAvailable(): Boolean = true
 
-    /**
-     * 获取不可达原因的用户友好描述
-     */
     fun getUnreachableReason(): String {
         return "语音合成服务不可达\n\n" +
                 "当前使用 Tailscale 内网地址 ($HOST)\n\n" +
@@ -78,20 +69,10 @@ class MiMoTtsManager(private val context: Context) {
                 "已自动切换为系统语音引擎播报"
     }
 
-    /**
-     * 设置语言方向
-     * @param lao true = 老挝语, false = 中文
-     */
     fun setLanguage(lao: Boolean) {
         isLao = lao
     }
 
-    /**
-     * 语音合成并播放
-     *
-     * @param text 要合成的文字
-     * @param style 语气风格（edge-tts 不支持，忽略）
-     */
     suspend fun speak(
         text: String,
         style: String = "",
@@ -184,7 +165,6 @@ class MiMoTtsManager(private val context: Context) {
         }
     }
 
-    /** 停止播放 */
     fun stop() {
         try {
             mediaPlayer?.stop()
@@ -196,8 +176,6 @@ class MiMoTtsManager(private val context: Context) {
     fun release() {
         stop()
     }
-
-    // ========== 内部方法 ==========
 
     private suspend fun playAudio(audioData: ByteArray, callback: TtsCallback?) {
         withContext(Dispatchers.IO) {
