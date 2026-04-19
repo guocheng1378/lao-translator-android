@@ -6,16 +6,19 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * 语音管理器
  *
  * - 语音识别：系统 SpeechRecognizer（国内手机可能不可用）
- * - 语音合成：MiMo TTS API（无限制，支持中老双语）
+ * - 语音合成：优先使用 Edge TTS（高质量），不可用时自动 fallback 到系统 TTS
  */
 class SpeechManager(private val context: Context) {
 
@@ -24,7 +27,11 @@ class SpeechManager(private val context: Context) {
     }
 
     private var speechRecognizer: SpeechRecognizer? = null
-    private val miMoTts = MiMoTtsManager(context)
+    private val edgeTts = MiMoTtsManager(context)
+
+    // 系统 TTS fallback
+    private var systemTts: TextToSpeech? = null
+    private var systemTtsReady = false
 
     // ========== 语音识别（保持原有逻辑） ==========
 
@@ -126,25 +133,68 @@ class SpeechManager(private val context: Context) {
         speechRecognizer = null
     }
 
-    // ========== 语音合成（MiMo TTS） ==========
+    // ========== 语音合成（Edge TTS + 系统 TTS fallback） ==========
 
     interface TtsCallback {
         fun onComplete()
         fun onError(error: String)
     }
 
-    /** TTS 始终可用 */
-    fun isTtsAvailable(): Boolean = miMoTts.isAvailable()
-
-    /** 兼容旧接口 */
-    fun initTts(onReady: ((Boolean) -> Unit)? = null) {
-        onReady?.invoke(true)
+    /**
+     * TTS 是否可用（Edge TTS 或系统 TTS 至少一个可用）
+     */
+    fun isTtsAvailable(): Boolean {
+        return edgeTts.isAvailable() || systemTtsReady
     }
 
-    fun getTtsStatus(): String = "TTS 已就绪"
+    /**
+     * Edge TTS 是否可用（用于 UI 展示更详细的状态）
+     */
+    fun isEdgeTtsAvailable(): Boolean = edgeTts.isAvailable()
+
+    /**
+     * 异步初始化系统 TTS 作为 fallback
+     */
+    fun initTts(onReady: ((Boolean) -> Unit)? = null) {
+        // 先检测 Edge TTS
+        val edgeAvailable = edgeTts.isAvailable()
+        Log.d(TAG, "Edge TTS available: $edgeAvailable")
+
+        if (edgeAvailable) {
+            onReady?.invoke(true)
+            // 后台初始化系统 TTS 作为备用
+            initSystemTts()
+            return
+        }
+
+        // Edge TTS 不可用，初始化系统 TTS
+        initSystemTts(onReady)
+    }
+
+    private fun initSystemTts(onReady: ((Boolean) -> Unit)? = null) {
+        try {
+            systemTts = TextToSpeech(context) { status ->
+                systemTtsReady = (status == TextToSpeech.SUCCESS)
+                Log.d(TAG, "System TTS init: status=$status, ready=$systemTtsReady")
+                onReady?.invoke(systemTtsReady || edgeTts.isAvailable())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init system TTS", e)
+            systemTtsReady = false
+            onReady?.invoke(false)
+        }
+    }
+
+    fun getTtsStatus(): String {
+        val edge = if (edgeTts.isAvailable()) "Edge TTS ✅" else "Edge TTS ❌ (Tailscale 不可达)"
+        val sys = if (systemTtsReady) "系统 TTS ✅" else "系统 TTS ❌"
+        return "$edge\n$sys"
+    }
 
     /**
      * 语音播报（suspend，需要在 lifecycleScope.launch 中调用）
+     *
+     * 优先使用 Edge TTS（高质量神经语音），失败时自动 fallback 到系统 TTS
      *
      * @param text 要播报的文字
      * @param locale 语言（自动判断中文/老挝语）
@@ -161,21 +211,84 @@ class SpeechManager(private val context: Context) {
 
         // 根据 locale 判断语言方向
         val isLao = locale.language == "lo"
-        miMoTts.setLanguage(isLao)
+        edgeTts.setLanguage(isLao)
 
-        miMoTts.speak(text, callback = object : MiMoTtsManager.TtsCallback {
-            override fun onComplete() = callback?.onComplete() ?: Unit
-            override fun onError(error: String) = callback?.onError(error) ?: Unit
-        })
+        if (edgeTts.isAvailable()) {
+            // 优先使用 Edge TTS
+            Log.d(TAG, "Using Edge TTS for speech")
+            edgeTts.speak(text, callback = object : MiMoTtsManager.TtsCallback {
+                override fun onComplete() {
+                    callback?.onComplete()
+                }
+
+                override fun onError(error: String) {
+                    Log.w(TAG, "Edge TTS failed, trying system TTS: $error")
+                    // Edge TTS 失败，fallback 到系统 TTS
+                    speakWithSystemTts(text, locale, callback)
+                }
+            })
+        } else {
+            // Edge TTS 不可用，直接用系统 TTS
+            Log.d(TAG, "Edge TTS unavailable, using system TTS")
+            speakWithSystemTts(text, locale, callback)
+        }
+    }
+
+    /**
+     * 使用系统 TTS 播报
+     */
+    private fun speakWithSystemTts(
+        text: String,
+        locale: Locale,
+        callback: TtsCallback?
+    ) {
+        if (!systemTtsReady || systemTts == null) {
+            // 系统 TTS 也不可用
+            val reason = if (!edgeTts.isAvailable()) {
+                edgeTts.getUnreachableReason()
+            } else {
+                "语音播报不可用"
+            }
+            callback?.onError(reason)
+            return
+        }
+
+        // 切到主线程调用系统 TTS
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try {
+                systemTts?.language = locale
+                systemTts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) {
+                        callback?.onComplete()
+                    }
+                    override fun onError(utteranceId: String?) {
+                        callback?.onError("系统 TTS 播报出错")
+                    }
+                })
+                systemTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tts_${System.currentTimeMillis()}")
+            } catch (e: Exception) {
+                Log.e(TAG, "System TTS error", e)
+                callback?.onError("系统 TTS 出错：${e.message}")
+            }
+        }
     }
 
     /** 停止播报 */
     fun stopSpeaking() {
-        miMoTts.stop()
+        edgeTts.stop()
+        try {
+            systemTts?.stop()
+        } catch (_: Exception) {}
     }
 
     fun release() {
         stopListening()
-        miMoTts.release()
+        edgeTts.release()
+        try {
+            systemTts?.shutdown()
+        } catch (_: Exception) {}
+        systemTts = null
+        systemTtsReady = false
     }
 }
