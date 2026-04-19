@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
  * MiMo 语音合成（TTS）— 用于中文 + 老挝语播报
  *
  * API 端点: https://api.xiaomimimo.com/v1/chat/completions
- * 模型: mimo-v2-audio-tts
+ * 模型: mimo-v2-tts
  * 输出: WAV/PCM 音频（24kHz, 16bit, mono）
  *
  * 支持 style 参数控制语气风格，如 "开心"、"悲伤"、"语速慢" 等。
@@ -29,7 +29,7 @@ class MiMoTtsManager(private val context: Context) {
     companion object {
         private const val TAG = "MiMoTts"
         private const val ENDPOINT = "https://api.xiaomimimo.com/v1/chat/completions"
-        private const val MODEL = "mimo-v2-audio-tts"
+        private const val MODEL = "mimo-v2-tts"
         private const val API_KEY = "sk-cqf4xgp4avkf4lfgrhwvwvmr2xd0gntc0ukyiwx45ljhtb02"
     }
 
