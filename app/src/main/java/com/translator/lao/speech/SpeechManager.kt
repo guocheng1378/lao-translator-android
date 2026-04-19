@@ -2,17 +2,17 @@ package com.translator.lao.speech
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * 语音管理器
@@ -33,7 +33,7 @@ class SpeechManager(private val context: Context) {
     private var systemTts: TextToSpeech? = null
     private var systemTtsReady = false
 
-    // ========== 语音识别（保持原有逻辑） ==========
+    // ========== 语音识别 ==========
 
     interface RecognitionCallback {
         fun onResult(text: String)
@@ -42,23 +42,100 @@ class SpeechManager(private val context: Context) {
         fun onEndOfSpeech()
     }
 
+    /**
+     * 检查语音识别是否真正可用
+     *
+     * 问题：SpeechRecognizer.isRecognitionAvailable() 在没有 Google Speech Services
+     * 的国产手机上仍会返回 true，导致后续 startListening() 失败并报奇怪的错误。
+     *
+     * 修复：除了系统查询外，还尝试实际创建 SpeechRecognizer 来验证。
+     */
     fun isRecognitionAvailable(): Boolean {
-        val available = SpeechRecognizer.isRecognitionAvailable(context)
-        Log.d(TAG, "SpeechRecognizer available: $available")
-        return available
+        // 第一步：系统级检查
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            Log.d(TAG, "SpeechRecognizer: system reports unavailable")
+            return false
+        }
+
+        // 第二步：尝试创建识别器来验证真实可用性
+        // 这能捕获 Google Speech Services 未安装的情况
+        var recognizer: SpeechRecognizer? = null
+        try {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+        } catch (e: Exception) {
+            Log.w(TAG, "SpeechRecognizer creation failed: ${e.message}")
+        }
+
+        val reallyAvailable = recognizer != null
+        recognizer?.destroy()
+
+        if (!reallyAvailable) {
+            Log.w(TAG, "SpeechRecognizer: system says available but createSpeechRecognizer() returned null")
+        }
+        return reallyAvailable
     }
 
+    /**
+     * 检查麦克风权限
+     */
+    fun hasRecordAudioPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * 获取不可用原因的用户友好描述
+     */
     fun getRecognitionUnavailableReason(): String {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            return "当前设备不支持语音识别\n\n可能原因：\n1. 未安装 Google 语音服务（国内手机常见）\n2. 未授予麦克风权限\n\n建议：使用手机键盘自带的🎤语音输入"
+        // 检查权限
+        if (!hasRecordAudioPermission()) {
+            return "未授予麦克风权限\n\n" +
+                    "请在手机设置中开启麦克风权限后重试\n\n" +
+                    "💡 也可以使用手机键盘自带的 🎤 语音输入"
         }
+
+        // 系统查询不可用
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            return "当前设备不支持语音识别\n\n" +
+                    "可能原因：\n" +
+                    "1. 未安装 Google 语音服务（国内手机常见）\n" +
+                    "2. 系统语音服务被禁用\n\n" +
+                    "💡 建议：使用手机键盘自带的 🎤 语音输入按钮"
+        }
+
+        // 系统说可用但创建失败 = 语音服务缺失
+        var canCreate = false
+        try {
+            val r = SpeechRecognizer.createSpeechRecognizer(context)
+            canCreate = (r != null)
+            r?.destroy()
+        } catch (_: Exception) {}
+
+        if (!canCreate) {
+            return "语音识别服务不可用\n\n" +
+                    "原因：设备未安装 Google 语音服务（Speech Services）\n" +
+                    "这在国内手机上非常常见\n\n" +
+                    "💡 解决方法：\n" +
+                    "1. 打开输入框，使用键盘上的 🎤 语音按钮（推荐）\n" +
+                    "2. 安装 Google App（应用商店搜索）\n" +
+                    "3. 安装后需科学上网才能使用"
+        }
+
         return "语音识别可用"
     }
 
     fun startListening(locale: Locale = Locale.CHINESE, callback: RecognitionCallback) {
         stopListening()
 
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+        // 先检查权限
+        if (!hasRecordAudioPermission()) {
+            callback.onError("未授予麦克风权限\n\n💡 建议：使用手机键盘自带的 🎤 语音输入")
+            return
+        }
+
+        // 检查识别器可用性
+        if (!isRecognitionAvailable()) {
             callback.onError(getRecognitionUnavailableReason())
             return
         }
@@ -67,12 +144,12 @@ class SpeechManager(private val context: Context) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create SpeechRecognizer", e)
-            callback.onError("创建语音识别器失败：${e.message}\n\n建议：使用手机键盘自带的🎤语音输入")
+            callback.onError("创建语音识别器失败：设备缺少语音识别服务\n\n💡 建议：使用手机键盘自带的 🎤 语音输入")
             return
         }
 
         if (speechRecognizer == null) {
-            callback.onError("无法创建语音识别器\n\n建议：使用手机键盘自带的🎤语音输入")
+            callback.onError("无法创建语音识别器：设备缺少语音识别服务\n\n💡 建议：使用手机键盘自带的 🎤 语音输入")
             return
         }
 
@@ -84,16 +161,27 @@ class SpeechManager(private val context: Context) {
             override fun onEndOfSpeech() { callback.onEndOfSpeech() }
 
             override fun onError(error: Int) {
+                Log.e(TAG, "SpeechRecognizer error: $error")
                 val msg = when (error) {
-                    SpeechRecognizer.ERROR_AUDIO -> "录音错误（麦克风被占用）"
-                    SpeechRecognizer.ERROR_CLIENT -> "客户端错误"
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "未授予麦克风权限，请在设置中开启"
+                    SpeechRecognizer.ERROR_AUDIO -> "录音错误（麦克风被其他应用占用）"
+                    SpeechRecognizer.ERROR_CLIENT -> {
+                        // ERROR_CLIENT 常见于 Google Speech Services 未安装/崩溃
+                        "语音识别服务异常\n\n" +
+                        "可能原因：未安装 Google 语音服务（国内手机常见）\n\n" +
+                        "💡 建议：使用手机键盘自带的 🎤 语音输入"
+                    }
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
+                        // 某些 ROM 会在服务缺失时误报此错误（不是真正的权限问题）
+                        "语音识别服务异常\n\n" +
+                        "即使已授予权限，设备缺少语音服务也会报此错误\n\n" +
+                        "💡 建议：使用手机键盘自带的 🎤 语音输入"
+                    }
                     SpeechRecognizer.ERROR_NETWORK -> "网络错误（语音识别需要联网）"
                     SpeechRecognizer.ERROR_NO_MATCH -> "未识别到语音，请大声一点再说一次"
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "识别器忙碌，请稍后重试"
-                    SpeechRecognizer.ERROR_SERVER -> "服务器错误（语音服务不可用）"
+                    SpeechRecognizer.ERROR_SERVER -> "服务器错误（语音服务不可用）\n\n💡 建议：使用手机键盘自带的 🎤 语音输入"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "语音超时，请重新说话"
-                    else -> "识别失败 (错误码: $error)"
+                    else -> "识别失败 (错误码: $error)\n\n💡 建议：使用手机键盘自带的 🎤 语音输入"
                 }
                 callback.onError(msg)
             }
