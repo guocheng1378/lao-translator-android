@@ -1,7 +1,7 @@
 {
-  "versionCode": 108,
-  "versionName": "v1.8",
-  "apkUrl": "https://github.com/guocheng1378/lao-translator-android/releases/download/v1.8/app-release-unsigned.apk",
-  "changelog": "修复标题栏图标显示不全的问题\n修复更新检测和下载（改用 GitHub 加速镜像）\n优化标题栏布局，图标和文字并排显示",
-  "fileSize": 46472663
+  "versionCode": 109,
+  "versionName": "v1.9",
+  "apkUrl": "https://github.com/guocheng1378/lao-translator-android/releases/download/v1.9/app-release-unsigned.apk",
+  "changelog": "🎤 新增泰语语音搜索：点击麦克风按钮，用泰语说话即可搜索老挝语词典\n🔍 新增拼音搜索：支持直接输入罗马拼音搜索（如输入 sabaidee 找到 สະບາຍ）\n📖 词典大幅扩充：新增 530+ 词条及 10 个分类（身体、天气、通讯、医疗、娱乐、文化、果蔬、衣物、工作等）\n🗄️ 数据库升级 v2：新增罗马拼音列，支持模糊匹配\n泰语→罗马拼音转换器：基于 Levenshtein 编辑距离的相似度匹配",
+  "fileSize": 46489275
 }
