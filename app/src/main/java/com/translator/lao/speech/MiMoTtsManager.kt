@@ -29,7 +29,7 @@ class MiMoTtsManager(private val context: Context) {
     companion object {
         private const val TAG = "EdgeTts"
         // 飞牛 NAS TTS 服务（内网地址，外网需端口转发）
-        private const val ENDPOINT = "http://192.168.2.63:5050/v1/audio/speech"
+        private const val ENDPOINT = "https://variables-gibraltar-chargers-romance.trycloudflare.com/v1/audio/speech"
         private const val API_KEY = ""  // 留空 = 不需要认证
 
         // 中文语音: zh-CN-XiaoxiaoNeural（女声，自然）
