@@ -36,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     private var isLaoToChinese = true
     private var isListening = false
     private var selectedCategoryIndex = -1
-    private val currentSource = TranslationApi.Source.MYMEMORY
+    private var currentSource = TranslationApi.Source.GOOGLE
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -76,6 +76,7 @@ class MainActivity : AppCompatActivity() {
         updateDirectionUI()
         updateModeUI()
         setupModeButtons()
+        setupSourceButtons()
         setupLanguageSwitch()
         setupActionButtons()
         setupCategoryChips()
@@ -98,6 +99,39 @@ class MainActivity : AppCompatActivity() {
                 updateModeUI()
             }
         }
+    }
+
+    private fun setupSourceButtons() {
+        updateSourceUI()
+
+        binding.btnSrcGoogle.setOnClickListener {
+            currentSource = TranslationApi.Source.GOOGLE
+            updateSourceUI()
+            showToast("翻译源: Google")
+        }
+        binding.btnSrcMyMemory.setOnClickListener {
+            currentSource = TranslationApi.Source.MYMEMORY
+            updateSourceUI()
+            showToast("翻译源: MyMemory")
+        }
+    }
+
+    private fun updateSourceUI() {
+        fun styleBtn(btn: com.google.android.material.button.MaterialButton,
+                     active: Boolean, activeColor: Int) {
+            if (active) {
+                btn.backgroundTintList = ContextCompat.getColorStateList(this, activeColor)
+                btn.setTextColor(ContextCompat.getColor(this, R.color.text_on_primary))
+                btn.strokeWidth = 0
+            } else {
+                btn.backgroundTintList = ContextCompat.getColorStateList(this, android.R.color.transparent)
+                btn.setTextColor(ContextCompat.getColor(this, activeColor))
+                btn.strokeWidth = 2
+                btn.strokeColor = ContextCompat.getColorStateList(this, activeColor)
+            }
+        }
+        styleBtn(binding.btnSrcGoogle, currentSource == TranslationApi.Source.GOOGLE, R.color.google_blue)
+        styleBtn(binding.btnSrcMyMemory, currentSource == TranslationApi.Source.MYMEMORY, R.color.mymemory_orange)
     }
 
     private fun setupLanguageSwitch() {
@@ -208,6 +242,7 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(ContextCompat.getColor(context, R.color.text_hint))
             }
             binding.cardCategories.visibility = View.VISIBLE
+            binding.layoutSourceSelector.visibility = View.GONE
         } else {
             binding.btnOfflineMode.apply {
                 backgroundTintList = ContextCompat.getColorStateList(context, R.color.offline_inactive)
@@ -218,6 +253,7 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(ContextCompat.getColor(context, R.color.text_on_primary))
             }
             binding.cardCategories.visibility = View.GONE
+            binding.layoutSourceSelector.visibility = View.VISIBLE
         }
     }
 
