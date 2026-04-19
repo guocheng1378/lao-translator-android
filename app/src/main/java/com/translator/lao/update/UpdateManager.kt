@@ -25,21 +25,24 @@ object UpdateManager {
 
     private val client get() = HttpClient.standard
 
-    // GitHub 镜像加速列表
+    // GitHub 镜像加速列表（国内可用）
     private val MIRRORS = listOf(
-        "",  // 优先直连
-        "https://gh-proxy.com",
-        "https://mirror.ghproxy.com",
+        "",                                          // 直连
+        "https://ghfast.top",                        // 国内加速
+        "https://gh-proxy.com",                      // 备用
+        "https://ghproxy.cn",                        // 备用
+        "https://mirror.ghproxy.com",                // 备用
     )
 
     // 缓存已验证可用的镜像前缀
     @Volatile
     private var cachedMirror: String? = null
 
-    // version.json 检测地址
+    // version.json 检测地址（国内加速）
     private val VERSION_URLS: List<String>
         get() = listOf(
             "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
+            "https://ghfast.top/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
             "https://ghproxy.cn/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
             "https://gh-proxy.com/https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
         )
@@ -76,11 +79,15 @@ object UpdateManager {
             var success = false
             for (url in VERSION_URLS) {
                 try {
-                    val resp = client.newCall(
-                        Request.Builder().url(url)
-                            .header("User-Agent", "LaoTranslator-Android")
-                            .get().build()
-                    ).execute()
+                    val resp = client.newBuilder()
+                        .connectTimeout(8, TimeUnit.SECONDS)
+                        .readTimeout(8, TimeUnit.SECONDS)
+                        .build()
+                        .newCall(
+                            Request.Builder().url(url)
+                                .header("User-Agent", "LaoTranslator-Android")
+                                .get().build()
+                        ).execute()
                     body = resp.body?.string() ?: ""
                     if (resp.isSuccessful && body.isNotEmpty()) {
                         success = true
