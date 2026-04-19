@@ -33,12 +33,12 @@ object UpdateManager {
         "https://ghps.cc",
     )
 
-    // version.json 多通道检查
+    // version.json 只走直连（镜像有缓存问题）
     private val VERSION_URLS: List<String>
-        get() = MIRRORS.map { mirror ->
-            val raw = "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json"
-            if (mirror.isNotEmpty()) "$mirror/$raw" else raw
-        }
+        get() = listOf(
+            "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
+            "https://cdn.jsdelivr.net/gh/$REPO_OWNER/$REPO_NAME@main/version.json",
+        )
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
