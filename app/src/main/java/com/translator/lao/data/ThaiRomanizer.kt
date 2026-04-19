@@ -6,7 +6,7 @@ package com.translator.lao.data
  * 用于将 Google SpeechRecognizer 输出的泰语文本转为罗马拼音，
  * 再通过拼音模糊匹配搜索老挝语词典。
  *
- * 基于 RTGS (Royal Thai General System) + 常用变体映射。
+ * 基于 RTGS (Royal Thai General System) 简化映射。
  */
 object ThaiRomanizer {
 
@@ -23,83 +23,71 @@ object ThaiRomanizer {
         'ห' to "h", 'ฬ' to "l", 'อ' to "", 'ฮ' to "h",
     )
 
-    // 泰语元音（含组合元音，需按顺序匹配）
-    private val vowels = listOf(
-        // 长元音
-        "เ\uE34ีย" to "ia", "เ\uE34ียะ" to "ia",
-        "\uE34ัว" to "ua", "\uE34ัวะ" to "ua",
-        "เ\uE34า" to "ao",
-        "แ\uE34ะ" to "ae", "แ\uE34" to "ae",
-        "เ\uE34อะ" to "oe", "เ\uE34อ" to "oe",
-        "เ\uE34าะ" to "o",
-        // 短元音
-        "เ\uE34ะ" to "e", "เ\uE34" to "e",
-        "แ\uE34ะ" to "ae",
-        "เ\uE34อะ" to "oe",
-        // 基本元音
-        "\uE34า" to "a", "\uE34ำ" to "am",
-        "\uE34ุ" to "u", "\uE34ู" to "u",
-        "\uE34ิ" to "i", "\uE34ี" to "i",
-        "\uE34ึ" to "ue", "\uE34ือ" to "ue",
-        "\uE34ะ" to "a", "\uE34ั" to "a",
-        "\uE34็" to "o",
-        "โ\uE34ะ" to "o", "โ\uE34" to "o",
-        "เ\uE34" to "e", "แ\uE34" to "ae",
-        "ไ\uE34" to "ai", "ใ\uE34" to "ai",
-        "\uE34" to "a", // fallback
+    // 泰语元音标记 → 罗马拼音
+    private val vowelMarks = mapOf(
+        '\u0E30' to "a",   // sara a
+        '\u0E31' to "a",   // mai han-akat (short a above)
+        '\u0E32' to "a",   // sara aa (long a)
+        '\u0E33' to "am",  // sara am
+        '\u0E34' to "i",   // sara i
+        '\u0E35' to "i",   // sara ii
+        '\u0E36' to "ue",  // sara ue
+        '\u0E37' to "ue",  // sara uue
+        '\u0E38' to "u",   // sara u
+        '\u0E39' to "u",   // sara uu
+        '\u0E40' to "e",   // sara e (leading)
+        '\u0E41' to "ae",  // sara ae (leading)
+        '\u0E42' to "o",   // sara o (leading)
+        '\u0E43' to "ai",  // sara ai maimuan (leading)
+        '\u0E44' to "ai",  // sara ai maimalai (leading)
+        '\u0E45' to "oe",  // lakhonyy
+        '\u0E47' to "",    // maitaikhu (vowel shortener, skip)
+        '\u0E48' to "",    // mai ek (tone)
+        '\u0E49' to "",    // mai tho (tone)
+        '\u0E4A' to "",    // mai tri (tone)
+        '\u0E4B' to "",    // mai chattawa (tone)
+        '\u0E4C' to "",    // thanthakhat (skip)
+        '\u0E4D' to "",    // nikkhahit (skip)
+        '\u0E4E' to "",    // yamakkan (skip)
     )
-
-    // 泰语声调标记（忽略，不影响拼音匹配）
-    private val toneMarks = setOf('\u0E48', '\u0E49', '\u0E4A', '\u0E4B')
 
     // 泰语数字
     private val thaiDigits = mapOf(
-        '๐' to '0', '๑' to '1', '๒' to '2', '๓' to '3', '๔' to '4',
-        '๕' to '5', '๖' to '6', '๗' to '7', '๘' to '8', '๙' to '9',
+        '๐' to "0", '๑' to "1", '๒' to "2", '๓' to "3", '๔' to "4",
+        '๕' to "5", '๖' to "6", '๗' to "7", '๘' to "8", '๙' to "9",
     )
+
+    // 独立元音（sara e/ae/o 前置 + 辅音的组合）
+    private val leadingVowels = setOf('\u0E40', '\u0E41', '\u0E42', '\u0E43', '\u0E44')
 
     /**
      * 将泰语文本转为罗马拼音
      * 例: "สวัสดี" → "sawatdi"
+     * 例: "ขอบคุณ" → "khobkhun"
      */
     fun romanize(thaiText: String): String {
         if (thaiText.isEmpty()) return ""
 
         val sb = StringBuilder()
-        var i = 0
         val chars = thaiText.toCharArray()
+        var i = 0
 
         while (i < chars.size) {
             val c = chars[i]
 
-            // 跳过声调标记
-            if (c in toneMarks) { i++; continue }
-
             // 泰语数字
-            if (c in thaiDigits) { sb.append(thaiDigits[c]); i++; continue }
-
-            // 非泰语字符直接保留
-            if (c.code < 0x0E01 || c.code > 0x0E5B) {
-                sb.append(c); i++; continue
+            if (c in thaiDigits) {
+                sb.append(thaiDigits[c])
+                i++
+                continue
             }
 
-            // 尝试匹配组合元音（最多往前看3个字符）
-            var matched = false
-            for (len in 4 downTo 2) {
-                if (i + len <= chars.size) {
-                    val sub = String(chars, i, len)
-                    // 检查是否是组合元音模式
-                    val key = vowels.find { it.first == sub }
-                    if (key != null) {
-                        sb.append(key.second)
-                        i += len
-                        matched = true
-                        break
-                    }
-                }
+            // 前置元音 (sara e/ae/o) - 输出元音再处理后面的辅音
+            if (c in leadingVowels) {
+                sb.append(vowelMarks[c] ?: "")
+                i++
+                continue
             }
-
-            if (matched) continue
 
             // 辅音
             if (c in consonants) {
@@ -108,33 +96,15 @@ object ThaiRomanizer {
                 continue
             }
 
-            // 独立元音标记
-            if (c.code in 0x0E30..0x0E3A || c.code in 0x0E40..0x0E44) {
-                val romanized = when (c) {
-                    '\u0E30' -> "a"
-                    '\u0E31' -> "a"
-                    '\u0E32' -> "a"
-                    '\u0E33' -> "am"
-                    '\u0E34' -> "i"
-                    '\u0E35' -> "i"
-                    '\u0E36' -> "ue"
-                    '\u0E37' -> "ue"
-                    '\u0E38' -> "u"
-                    '\u0E39' -> "u"
-                    '\u0E40' -> "e"
-                    '\u0E41' -> "ae"
-                    '\u0E42' -> "o"
-                    '\u0E43' -> "ai"
-                    '\u0E44' -> "ai"
-                    '\u0E45' -> "oe" // ๅ
-                    else -> ""
-                }
-                sb.append(romanized)
+            // 元音标记和声调标记
+            if (c in vowelMarks) {
+                sb.append(vowelMarks[c])
                 i++
                 continue
             }
 
-            // 其他泰语字符跳过
+            // 非泰语字符直接保留
+            sb.append(c)
             i++
         }
 
@@ -187,22 +157,6 @@ object ThaiRomanizer {
         val maxLen = maxOf(a.length, b.length)
         val dist = levenshtein(a, b)
         return 1.0 - (dist.toDouble() / maxLen)
-    }
-
-    /**
-     * 判断泰语罗马拼音是否与老挝语罗马拼音足够接近
-     * 阈值 0.6 比较宽松，适合泰-老语音差异
-     */
-    fun isMatch(thaiRomanized: String, laoRomanized: String): Boolean {
-        // 精确匹配
-        if (thaiRomanized == laoRomanized) return true
-
-        // 前缀匹配（泰语输入可能是截断的）
-        if (laoRomanized.startsWith(thaiRomanized) && thaiRomanized.length >= 3) return true
-        if (thaiRomanized.startsWith(laoRomanized) && laoRomanized.length >= 3) return true
-
-        // 模糊匹配
-        return similarity(thaiRomanized, laoRomanized) >= 0.6
     }
 
     /**
