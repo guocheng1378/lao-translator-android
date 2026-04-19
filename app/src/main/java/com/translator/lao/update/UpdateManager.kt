@@ -33,12 +33,16 @@ object UpdateManager {
         "https://ghps.cc",
     )
 
-    // version.json 只走直连（镜像有缓存问题）
+    // version.json 检测地址（jsdelivr 加时间戳防缓存）
     private val VERSION_URLS: List<String>
-        get() = listOf(
-            "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
-            "https://cdn.jsdelivr.net/gh/$REPO_OWNER/$REPO_NAME@main/version.json",
-        )
+        get() {
+            val ts = System.currentTimeMillis() / 60000 // 每分钟变一次，避免频繁请求
+            return listOf(
+                "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/main/version.json",
+                "https://cdn.jsdelivr.net/gh/$REPO_OWNER/$REPO_NAME@main/version.json?t=$ts",
+                "https://gcore.jsdelivr.net/gh/$REPO_OWNER/$REPO_NAME@main/version.json?t=$ts",
+            )
+        }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
