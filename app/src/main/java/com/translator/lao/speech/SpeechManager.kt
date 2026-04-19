@@ -133,7 +133,7 @@ class SpeechManager(private val context: Context) {
         fun onError(error: String)
     }
 
-    /** MiMo TTS 始终可用（key 写死在代码里） */
+    /** TTS 始终可用 */
     fun isTtsAvailable(): Boolean = miMoTts.isAvailable()
 
     /** 兼容旧接口 */
@@ -141,13 +141,13 @@ class SpeechManager(private val context: Context) {
         onReady?.invoke(true)
     }
 
-    fun getTtsStatus(): String = "MiMo TTS 已就绪"
+    fun getTtsStatus(): String = "TTS 已就绪"
 
     /**
      * 语音播报（suspend，需要在 lifecycleScope.launch 中调用）
      *
      * @param text 要播报的文字
-     * @param locale 语言（自动判断中文/老挝语，传入即可）
+     * @param locale 语言（自动判断中文/老挝语）
      */
     suspend fun speak(
         text: String,
@@ -158,6 +158,10 @@ class SpeechManager(private val context: Context) {
             withContext(Dispatchers.Main) { callback?.onError("文字为空") }
             return@withContext
         }
+
+        // 根据 locale 判断语言方向
+        val isLao = locale.language == "lo"
+        miMoTts.setLanguage(isLao)
 
         miMoTts.speak(text, callback = object : MiMoTtsManager.TtsCallback {
             override fun onComplete() = callback?.onComplete() ?: Unit

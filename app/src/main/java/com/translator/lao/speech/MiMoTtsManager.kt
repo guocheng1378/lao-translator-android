@@ -10,27 +10,32 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * MiMo 语音合成（TTS）— 用于中文 + 老挝语播报
+ * 语音合成（TTS）— 中文 + 老挝语播报
  *
- * API 端点: https://api.xiaomimimo.com/v1/chat/completions
- * 模型: mimo-v2-tts
- * 输出: WAV/PCM 音频（24kHz, 16bit, mono）
+ * 使用 openai-edge-tts 服务（兼容 OpenAI TTS API，基于 Microsoft Edge 免费 TTS）
+ * 部署方式: https://github.com/travisvn/openai-edge-tts
  *
- * 支持 style 参数控制语气风格，如 "开心"、"悲伤"、"语速慢" 等。
+ * API 端点: POST /v1/audio/speech
+ * 输入: JSON {"input": "文字", "voice": "语音名", "response_format": "mp3"}
+ * 输出: 直接返回 MP3 音频流
  */
 class MiMoTtsManager(private val context: Context) {
 
     companion object {
-        private const val TAG = "MiMoTts"
-        private const val ENDPOINT = "https://api.xiaomimimo.com/v1/chat/completions"
-        private const val MODEL = "mimo-v2-tts"
-        private const val API_KEY = "sk-cqf4xgp4avkf4lfgrhwvwvmr2xd0gntc0ukyiwx45ljhtb02"
+        private const val TAG = "EdgeTts"
+        // TODO: 部署 openai-edge-tts 后改成你的服务地址
+        private const val ENDPOINT = "http://localhost:5050/v1/audio/speech"
+        private const val API_KEY = ""  // 留空 = 不需要认证
+
+        // 中文语音: zh-CN-XiaoxiaoNeural（女声，自然）
+        private const val VOICE_ZH = "zh-CN-XiaoxiaoNeural"
+        // 老挝语语音: lo-LA-KeomanyNeural
+        private const val VOICE_LO = "lo-LA-KeomanyNeural"
     }
 
     interface TtsCallback {
@@ -44,14 +49,23 @@ class MiMoTtsManager(private val context: Context) {
         .build()
 
     private var mediaPlayer: MediaPlayer? = null
+    private var isLao = false  // 由 speak 调用时设置
 
-    fun isAvailable(): Boolean = true  // key 写死在代码里，始终可用
+    fun isAvailable(): Boolean = true
+
+    /**
+     * 设置语言方向
+     * @param lao true = 老挝语, false = 中文
+     */
+    fun setLanguage(lao: Boolean) {
+        isLao = lao
+    }
 
     /**
      * 语音合成并播放
      *
      * @param text 要合成的文字
-     * @param style 语气风格（可选）：开心 / 悲伤 / 语速慢 / 清晰有力 / 东北话 等
+     * @param style 语气风格（edge-tts 不支持，忽略）
      */
     suspend fun speak(
         text: String,
@@ -67,81 +81,44 @@ class MiMoTtsManager(private val context: Context) {
             }
 
             val trimmedText = if (text.length > 500) text.take(500) else text
-
-            // 构建 content（带 style 标签）
-            val content = if (style.isNotBlank()) {
-                "<style>${style}</style>${trimmedText}"
-            } else {
-                trimmedText
-            }
+            val voice = if (isLao) VOICE_LO else VOICE_ZH
 
             // 构建请求体
-            val messages = JSONArray().put(
-                JSONObject().put("role", "assistant").put("content", content)
-            )
-            val audio = JSONObject()
-                .put("format", "wav")
-                .put("voice", "mimo_default")
-
             val payload = JSONObject()
-                .put("model", MODEL)
-                .put("audio", audio)
-                .put("messages", messages)
+                .put("input", trimmedText)
+                .put("voice", voice)
+                .put("response_format", "mp3")
 
-            Log.d(TAG, "TTS request: '${trimmedText.take(30)}...' style=$style")
+            Log.d(TAG, "TTS request: '${trimmedText.take(30)}...' voice=$voice")
 
-            val request = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(ENDPOINT)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("api-key", API_KEY)
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
 
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            if (API_KEY.isNotBlank()) {
+                reqBuilder.addHeader("Authorization", "Bearer $API_KEY")
+            }
+
+            val response = client.newCall(reqBuilder.build()).execute()
 
             if (!response.isSuccessful) {
-                Log.e(TAG, "HTTP ${response.code}: $body")
+                val errBody = response.body?.string() ?: ""
+                Log.e(TAG, "HTTP ${response.code}: $errBody")
                 withContext(Dispatchers.Main) {
                     callback?.onError("合成失败：HTTP ${response.code}")
                 }
                 return@withContext
             }
 
-            // 解析响应
-            val json = JSONObject(body)
-
-            if (json.has("error")) {
-                val error = json.getJSONObject("error")
-                val msg = error.optString("message", "未知错误")
-                Log.e(TAG, "API error: $msg")
-                withContext(Dispatchers.Main) { callback?.onError("合成失败：$msg") }
+            val audioBytes = response.body?.bytes()
+            if (audioBytes == null || audioBytes.isEmpty()) {
+                withContext(Dispatchers.Main) { callback?.onError("返回音频为空") }
                 return@withContext
             }
 
-            val audioData = json
-                .getJSONArray("choices")
-                .getJSONObject(0)
-                .getJSONObject("message")
-                .getJSONObject("audio")
-                .getString("data")
-
-            val rawBytes = android.util.Base64.decode(audioData, android.util.Base64.DEFAULT)
-            Log.d(TAG, "Got ${rawBytes.size} bytes of audio")
-
-            // 判断是 WAV 还是 raw PCM，如果是 PCM 需要加 WAV header
-            val wavBytes = if (rawBytes.size > 4 &&
-                rawBytes[0] == 'R'.code.toByte() &&
-                rawBytes[1] == 'I'.code.toByte() &&
-                rawBytes[2] == 'F'.code.toByte() &&
-                rawBytes[3] == 'F'.code.toByte()
-            ) {
-                rawBytes // 已经是 WAV
-            } else {
-                pcmToWav(rawBytes, 24000) // raw PCM → WAV
-            }
-
-            playAudio(wavBytes, callback)
+            Log.d(TAG, "Got ${audioBytes.size} bytes of MP3 audio")
+            playAudio(audioBytes, callback)
 
         } catch (e: Exception) {
             Log.e(TAG, "TTS error", e)
@@ -169,7 +146,7 @@ class MiMoTtsManager(private val context: Context) {
     private suspend fun playAudio(audioData: ByteArray, callback: TtsCallback?) {
         withContext(Dispatchers.IO) {
             try {
-                val tempFile = File(context.cacheDir, "mimo_tts_${System.currentTimeMillis()}.wav")
+                val tempFile = File(context.cacheDir, "tts_${System.currentTimeMillis()}.mp3")
                 tempFile.writeBytes(audioData)
 
                 withContext(Dispatchers.Main) {
@@ -206,48 +183,5 @@ class MiMoTtsManager(private val context: Context) {
                 }
             }
         }
-    }
-
-    /** Raw PCM → WAV (24kHz, 16bit, mono) */
-    private fun pcmToWav(pcmData: ByteArray, sampleRate: Int = 24000): ByteArray {
-        val channels = 1
-        val bitsPerSample = 16
-        val byteRate = sampleRate * channels * bitsPerSample / 8
-        val totalDataLen = pcmData.size + 36
-
-        return ByteArray(44 + pcmData.size).also { wav ->
-            // RIFF header
-            "RIFF".forEachIndexed { i, c -> wav[i] = c.code.toByte() }
-            writeInt(wav, 4, totalDataLen)
-            "WAVE".forEachIndexed { i, c -> wav[8 + i] = c.code.toByte() }
-
-            // fmt chunk
-            "fmt ".forEachIndexed { i, c -> wav[12 + i] = c.code.toByte() }
-            writeInt(wav, 16, 16)
-            writeShort(wav, 20, 1) // PCM
-            writeShort(wav, 22, channels.toShort())
-            writeInt(wav, 24, sampleRate)
-            writeInt(wav, 28, byteRate)
-            writeShort(wav, 32, (channels * bitsPerSample / 8).toShort())
-            writeShort(wav, 34, bitsPerSample.toShort())
-
-            // data chunk
-            "data".forEachIndexed { i, c -> wav[36 + i] = c.code.toByte() }
-            writeInt(wav, 40, pcmData.size)
-
-            pcmData.copyInto(wav, 44)
-        }
-    }
-
-    private fun writeInt(buf: ByteArray, offset: Int, value: Int) {
-        buf[offset] = (value and 0xFF).toByte()
-        buf[offset + 1] = ((value shr 8) and 0xFF).toByte()
-        buf[offset + 2] = ((value shr 16) and 0xFF).toByte()
-        buf[offset + 3] = ((value shr 24) and 0xFF).toByte()
-    }
-
-    private fun writeShort(buf: ByteArray, offset: Int, value: Short) {
-        buf[offset] = (value.toInt() and 0xFF).toByte()
-        buf[offset + 1] = ((value.toInt() shr 8) and 0xFF).toByte()
     }
 }

@@ -227,7 +227,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 showToast("正在朗读...")
                 lifecycleScope.launch {
-                    speechManager.speak(text, callback = object : SpeechManager.TtsCallback {
+                    val ttsLocale = if (isLaoToChinese) Locale.CHINESE else Locale("lo")
+                    speechManager.speak(text, locale = ttsLocale, callback = object : SpeechManager.TtsCallback {
                         override fun onComplete() {
                             Log.d("MainActivity", "TTS playback complete")
                         }
