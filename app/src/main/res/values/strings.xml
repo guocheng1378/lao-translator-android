@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">老挝翻译</string>
+
+    <!-- 主页 -->
+    <string name="title_app">老挝语翻译器</string>
+    <string name="mode_offline">📖 离线词典</string>
+    <string name="mode_online">🌐 在线翻译</string>
+    <string name="source_lang_lao">🇱🇦 老挝语</string>
+    <string name="source_lang_zh">🇨🇳 中文</string>
+    <string name="target_lang_zh">🇨🇳 中文</string>
+    <string name="target_lang_lao">🇱🇦 老挝语</string>
+    <string name="input_hint">输入文字或点击🎤说话…</string>
+    <string name="btn_translate">翻译</string>
+    <string name="btn_ocr">📷 拍照翻译</string>
+    <string name="btn_dictionary">🔍 词典搜索</string>
+    <string name="footer_text">离线词典无需联网 · 在线翻译支持多种翻译源</string>
+    <string name="translating">翻译中…</string>
+    <string name="copy_success">已复制到剪贴板</string>
+    <string name="no_result_offline">未找到翻译，请尝试在线模式</string>
+    <string name="no_result_online">翻译失败，请检查网络</string>
+    <string name="translating_label">翻译中…</string>
+    <string name="category_title">📚 分类词库</string>
+
+    <!-- 翻译源 -->
+    <string name="source_label">翻译源:</string>
+    <string name="source_mymemory">MyMemory</string>
+    <string name="source_google">Google</string>
+    <string name="source_bing">Bing</string>
+    <string name="source_libre">Libre</string>
+    <string name="source_changed">翻译源: %s</string>
+
+    <!-- 空状态引导 -->
+    <string name="empty_state_hint">💡 输入文字或点击 🎤 语音输入开始翻译</string>
+
+    <!-- 语音 -->
+    <string name="mic_permission_needed">需要麦克风权限才能使用语音输入</string>
+    <string name="tts_init_failed">语音合成功能初始化失败</string>
+    <string name="listening">正在聆听…</string>
+    <string name="recognizing">识别中…</string>
+    <string name="tts_unavailable_title">语音播报不可用</string>
+    <string name="tts_unavailable_msg">当前设备没有可用的语音合成引擎\n\n建议：复制文字后使用手机自带的朗读功能</string>
+    <string name="tts_speaking">正在朗读…</string>
+    <string name="tts_failed_prefix">播报失败：</string>
+    <string name="btn_copy_text">复制文字</string>
+    <string name="btn_known">知道了</string>
+    <string name="recognition_unavailable_title">语音识别不可用</string>
+
+    <!-- 网络 -->
+    <string name="network_online">在线</string>
+    <string name="network_offline">离线</string>
+    <string name="network_required">请连接网络后检查更新</string>
+    <string name="checking_update">正在检查更新…</string>
+    <string name="already_latest">已是最新版本</string>
+
+    <!-- 更新 -->
+    <string name="update_found_title">🎉 有新版本可用</string>
+    <string name="update_found_version">发现新版本: %s</string>
+    <string name="update_size">大小: %s</string>
+    <string name="update_changelog_label">更新内容:</string>
+    <string name="btn_update_now">立即更新</string>
+    <string name="btn_update_later">稍后</string>
+    <string name="download_started">开始下载更新…</string>
+    <string name="download_complete">下载完成，正在安装…</string>
+
+    <!-- 收藏 -->
+    <string name="favorited">已收藏</string>
+    <string name="unfavorited">已取消收藏</string>
+    <string name="copied">已复制</string>
+
+    <!-- OCR -->
+    <string name="ocr_title">拍照翻译</string>
+    <string name="ocr_recognizing">正在识别文字…</string>
+    <string name="ocr_translating">正在翻译…</string>
+    <string name="ocr_no_text">未识别到文字</string>
+    <string name="ocr_recognize_failed">识别失败</string>
+    <string name="ocr_camera_permission">需要相机权限才能拍照翻译</string>
+    <string name="ocr_image_load_failed">无法加载图片</string>
+    <string name="ocr_image_process_failed">图片处理失败</string>
+    <string name="ocr_direction_lao_zh">老挝语 → 中文</string>
+    <string name="ocr_direction_zh_lao">中文 → 老挝语</string>
+    <string name="ocr_btn_camera">📷 拍照</string>
+    <string name="ocr_btn_gallery">🖼 相册</string>
+    <string name="ocr_btn_translate">翻译</string>
+    <string name="ocr_offline_result_empty">离线词典未找到结果，可尝试在线翻译</string>
+</resources>
