@@ -50,5 +50,14 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+            <activity
+            android:name=".ui.HistoryActivity"
+            android:theme="@style/Theme.LaoTranslator" />
+
+        <activity
+            android:name=".ui.FavoritesActivity"
+            android:theme="@style/Theme.LaoTranslator" />
+
     </application>
 </manifest>
+
