@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">老挝语翻译器</string>
+    <string name="app_name">老挝翻译</string>
     <string name="translating">翻译中…</string>
     <string name="translate">翻译</string>
     <string name="copy_success">已复制到剪贴板</string>
