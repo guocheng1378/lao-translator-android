@@ -32,6 +32,9 @@ target_include_directories(ggml-backend PUBLIC
     ${WHISPER_DIR}/ggml/src
 )
 
+# Define GGML_USE_CPU so ggml-backend-reg.cpp registers the CPU backend automatically
+target_compile_definitions(ggml-backend PUBLIC GGML_USE_CPU)
+
 target_link_libraries(ggml-backend ggml)
 
 # whisper
