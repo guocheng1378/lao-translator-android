@@ -69,7 +69,7 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
 
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.language = "auto";
-    params.n_threads = 4;
+    params.n_threads = 2;
     params.print_realtime = false;
     params.print_progress = false;
     params.print_timestamps = false;
@@ -79,7 +79,9 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     params.greedy.best_of = 1;
     params.token_timestamps = false;
 
+    LOGI("whisper_full: samples=%d, threads=%d", n_samples, params.n_threads);
     int ret = whisper_full(g_ctx, params, samples, n_samples);
+    LOGI("whisper_full done: ret=%d", ret);
 
     env->ReleaseFloatArrayElements(audio_data, samples, 0);
     env->ReleaseStringUTFChars(language, lang);
