@@ -5,16 +5,6 @@
 
 static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
-static bool g_backend_registered = false;
-
-// Pre-register CPU backend before whisper_init_from_file to avoid SIGSEGV
-// in ggml_backend_dev_backend_reg() during automatic backend discovery on Android.
-// whisper.h includes ggml-cpu.h which declares ggml_backend_cpu_reg().
-static void ensure_cpu_backend() {
-    if (g_backend_registered) return;
-    ggml_backend_cpu_reg();  // triggers CPU backend registration
-    g_backend_registered = true;
-}
 
 extern "C" {
 
@@ -23,9 +13,6 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
         JNIEnv *env, jobject thiz, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     std::lock_guard<std::mutex> lock(g_mutex);
-
-    ensure_cpu_backend();
-
     if (g_ctx) whisper_free(g_ctx);
     g_ctx = whisper_init_from_file(path);
     env->ReleaseStringUTFChars(model_path, path);
