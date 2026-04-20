@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private var skipCount = 0
     private var autoSpeak = true
     private var isProcessing = false
+    private var modelsReady = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -121,9 +122,11 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     binding.tvStatus.text = "✅ 就绪 [${ttsInfo.joinToString(" ")}]，点击麦克风开始"
                 }
+                modelsReady = true
 
             } catch (e: Exception) {
                 binding.tvStatus.text = "❌ 初始化失败: ${e.message}"
+                modelsReady = false
             }
         }
     }
@@ -201,6 +204,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startRealtimeTranslation() {
+        if (!modelsReady || !translator.isReady) {
+            Toast.makeText(this, "模型尚未加载完成，请稍候", Toast.LENGTH_SHORT).show()
+            return
+        }
         Log.d(TAG, "startRealtimeTranslation 调用")
         sourceBuffer.clear()
         targetBuffer.clear()
@@ -265,11 +272,16 @@ class MainActivity : AppCompatActivity() {
         else
             TranslationManager.TranslateDirection.ChineseToLao
 
-        val translated = withContext(Dispatchers.IO) {
-            translator.translate(result.text.trim(), dir)
+        val translated = try {
+            withContext(Dispatchers.IO) {
+                translator.translate(result.text.trim(), dir)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "翻译失败", e)
+            null
         }
 
-        if (translated.isNotBlank()) {
+        if (!translated.isNullOrBlank()) {
             targetBuffer.append(translated)
             binding.tvTargetText.text = targetBuffer.toString()
 
