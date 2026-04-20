@@ -25,7 +25,7 @@ jobs:
 
       - name: Download whisper.cpp source
         run: |
-          git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git /tmp/whisper-src
+          git clone --depth 1 --branch v1.6.2 https://github.com/ggerganov/whisper.cpp.git /tmp/whisper-src
           rm -rf app/src/main/cpp/whisper
           mkdir -p app/src/main/cpp/whisper
           cp -r /tmp/whisper-src/ggml app/src/main/cpp/whisper/
