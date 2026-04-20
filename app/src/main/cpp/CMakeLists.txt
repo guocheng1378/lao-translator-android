@@ -17,30 +17,18 @@ target_include_directories(ggml PUBLIC
     ${WHISPER_DIR}/ggml/src
 )
 
-# ggml backend + CPU backend (full sources)
-# ggml-backend-reg.cpp registers backends; GGML_USE_CPU enables CPU backend registration
+# ggml backend (CPU only)
 add_library(ggml-backend STATIC
     ${WHISPER_DIR}/ggml/src/ggml-backend.cpp
     ${WHISPER_DIR}/ggml/src/ggml-backend-reg.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-threading.cpp
-    # CPU backend sources
     ${WHISPER_DIR}/ggml/src/ggml-cpu/ggml-cpu.c
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/ggml-cpu.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/repack.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/quants.c
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/traits.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/vec.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/binary-ops.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/unary-ops.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/ops.cpp
+    ${WHISPER_DIR}/ggml/src/ggml-threading.cpp
 )
 
 target_include_directories(ggml-backend PUBLIC
     ${WHISPER_DIR}/ggml/include
     ${WHISPER_DIR}/ggml/src
 )
-
-target_compile_definitions(ggml-backend PUBLIC GGML_USE_CPU)
 
 target_link_libraries(ggml-backend ggml)
 
