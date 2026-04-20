@@ -310,9 +310,11 @@ class MainActivity : AppCompatActivity() {
                 translator.translate(result.text.trim(), dir)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "翻译失败", e)
+            Log.e(TAG, "翻译失败: ${e.message}", e)
             null
         }
+
+        Log.d(TAG, "翻译结果: '$translated', 模式=${translator.getCurrentMode()}")
 
         if (!translated.isNullOrBlank()) {
             targetBuffer.append(translated)
@@ -323,9 +325,11 @@ class MainActivity : AppCompatActivity() {
                     tts.speak(translated, targetLangCode)
                 }
             }
+            binding.tvStatus.text = "✅ 已翻译 (有效 #$chunkCount) [${if (translator.getCurrentMode() == TranslationManager.TranslateMode.MYMEMORY_LAO) "在线·老挝语" else "离线·泰语"}]"
+        } else {
+            Log.e(TAG, "翻译返回空! 文本='${result.text}', 方向=$dir, 模式=${translator.getCurrentMode()}")
+            binding.tvStatus.text = "⚠️ 识别到: \"${result.text.take(20)}\" 但翻译失败 (模式:${translator.getCurrentMode()})"
         }
-
-        binding.tvStatus.text = "✅ 已翻译 (有效 #$chunkCount) [${if (translator.getCurrentMode() == TranslationManager.TranslateMode.MYMEMORY_LAO) "在线·老挝语" else "离线·泰语"}]"
     }
 
     private fun stopRecording() {

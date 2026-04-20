@@ -195,6 +195,8 @@ class TranslationManager(private val context: Context) {
         val encoded = URLEncoder.encode(text, "UTF-8")
         val urlStr = "https://api.mymemory.translated.net/get?q=$encoded&langpair=$langPair"
 
+        Log.d(TAG, "MyMemory 请求: langPair=$langPair, text='$text'")
+
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         conn.setRequestProperty("User-Agent", "Mozilla/5.0")
         conn.connectTimeout = 15000
@@ -210,9 +212,16 @@ class TranslationManager(private val context: Context) {
             val body = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use {
                 it.readText()
             }
+            Log.d(TAG, "MyMemory 响应: ${body.take(500)}")
             val json = JSONObject(body)
             val responseData = json.optJSONObject("responseData")
-            return responseData?.optString("translatedText", "") ?: ""
+            val translated = responseData?.optString("translatedText", "") ?: ""
+            val responseStatus = json.optInt("responseStatus", -1)
+            Log.d(TAG, "MyMemory 翻译结果: '$translated', status=$responseStatus")
+            return translated
+        } catch (e: Exception) {
+            Log.e(TAG, "MyMemory 请求异常: ${e.message}", e)
+            return ""
         } finally {
             conn.disconnect()
         }
