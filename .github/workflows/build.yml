@@ -1,0 +1,50 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Download whisper.cpp source
+        run: |
+          cd app/src/main/cpp
+          git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git whisper-tmp
+          cp whisper-tmp/whisper.cpp whisper/
+          cp whisper-tmp/whisper.h whisper/
+          cp whisper-tmp/ggml.c whisper/
+          cp whisper-tmp/ggml.h whisper/
+          cp whisper-tmp/ggml-alloc.c whisper/
+          cp whisper-tmp/ggml-backend.c whisper/
+          cp whisper-tmp/ggml-backend.h whisper/
+          cp whisper-tmp/ggml-common.h whisper/
+          cp whisper-tmp/ggml-impl.h whisper/
+          cp whisper-tmp/ggml-quants.c whisper/
+          cp whisper-tmp/ggml-quants.h whisper/
+          rm -rf whisper-tmp
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lao-translator-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
