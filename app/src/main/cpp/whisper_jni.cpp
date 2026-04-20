@@ -13,9 +13,6 @@ static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
 static bool g_backend_ready = false;
 
-// Ensure CPU backend is registered before whisper_init_from_file.
-// With GGML_USE_CPU defined, ggml-backend-reg.cpp auto-registers the CPU backend.
-// ggml_backend_init_by_type triggers implicit registration as a side effect.
 static bool ensure_backend() {
     if (g_backend_ready) return true;
     ggml_backend_t backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
@@ -24,7 +21,6 @@ static bool ensure_backend() {
         g_backend_ready = true;
         return true;
     }
-    // 后端初始化失败，不要标记为 ready
     __android_log_print(ANDROID_LOG_ERROR, "whisper_jni",
                         "ensure_backend: CPU backend init failed!");
     return false;
@@ -46,13 +42,14 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
 
     if (g_ctx) whisper_free(g_ctx);
     g_ctx = whisper_init_from_file(path);
-    env->ReleaseStringUTFChars(model_path, path);
 
     if (g_ctx) {
-        LOGI("nativeInit: whisper context initialized OK");
+        LOGI("nativeInit: OK, n_mels=%d", whisper_model_n_mels(g_ctx));
     } else {
-        LOGE("nativeInit: whisper_init_from_file FAILED for: %s", path);
+        LOGE("nativeInit: FAILED for: %s", path);
     }
+
+    env->ReleaseStringUTFChars(model_path, path);
     return g_ctx != nullptr;
 }
 
@@ -70,28 +67,15 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    // Auto-detect language if needed
-    std::string lang_prefix;
-    if (auto_detect) {
-        float lang_probs[100];
-        int detected_id = whisper_lang_auto_detect(g_ctx, 0, 4, lang_probs);
-        if (detected_id >= 0) {
-            const char *detected_str = whisper_lang_str(detected_id);
-            lang_prefix = "LANG:" + std::string(detected_str ? detected_str : "unknown") + "\n";
-        } else {
-            lang_prefix = "LANG:unknown\n";
-        }
-    }
-
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    params.language = auto_detect ? "auto" : lang;
+    params.language = "auto";
     params.n_threads = 4;
     params.print_realtime = false;
     params.print_progress = false;
     params.print_timestamps = false;
     params.no_context = true;
     params.single_segment = true;
-    params.detect_language = auto_detect;
+    params.detect_language = true;
     params.greedy.best_of = 1;
     params.token_timestamps = false;
 
@@ -102,14 +86,16 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
 
     std::string result;
     if (ret == 0) {
-        result = lang_prefix;
+        int lang_id = whisper_full_lang_id(g_ctx);
+        const char *detected = whisper_lang_str(lang_id);
+        result = "LANG:" + std::string(detected ? detected : "unknown") + "\n";
         int n_segments = whisper_full_n_segments(g_ctx);
         for (int i = 0; i < n_segments; ++i) {
             const char *text = whisper_full_get_segment_text(g_ctx, i);
             if (text) result += text;
         }
     } else {
-        LOGE("whisper_full failed with code %d (n_samples=%d)", ret, n_samples);
+        LOGE("whisper_full failed: %d (samples=%d)", ret, n_samples);
     }
 
     return env->NewStringUTF(result.c_str());
