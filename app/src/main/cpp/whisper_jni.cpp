@@ -11,20 +11,7 @@
 
 static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
-static bool g_backend_ready = false;
-
-static bool ensure_backend() {
-    if (g_backend_ready) return true;
-    ggml_backend_t backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
-    if (backend) {
-        ggml_backend_free(backend);
-        g_backend_ready = true;
-        return true;
-    }
-    __android_log_print(ANDROID_LOG_ERROR, "whisper_jni",
-                        "ensure_backend: CPU backend init failed!");
-    return false;
-}
+static std::mutex g_mutex;
 
 extern "C" {
 
@@ -33,12 +20,6 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
         JNIEnv *env, jobject thiz, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     std::lock_guard<std::mutex> lock(g_mutex);
-
-    if (!ensure_backend()) {
-        LOGE("nativeInit: CPU backend not available, aborting init");
-        env->ReleaseStringUTFChars(model_path, path);
-        return JNI_FALSE;
-    }
 
     if (g_ctx) whisper_free(g_ctx);
     g_ctx = whisper_init_from_file(path);

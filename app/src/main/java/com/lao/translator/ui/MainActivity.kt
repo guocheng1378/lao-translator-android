@@ -102,10 +102,10 @@ class MainActivity : AppCompatActivity() {
             try {
                 withTimeout(120_000) { // 2 分钟超时
                     withContext(Dispatchers.IO) {
-                        ensureModelExists("ggml-small.bin")
+                        ensureModelExists("ggml-base.bin")
                         Log.d(TAG, "模型文件就绪, 开始 nativeInit")
                         val t0 = System.currentTimeMillis()
-                        whisper.init("ggml-small.bin")
+                        whisper.init("ggml-base.bin")
                         Log.d(TAG, "nativeInit 完成, 耗时=${System.currentTimeMillis() - t0}ms")
                     }
                     // 跳过 warmup — 它会导致小米设备上的 whisper 崩溃
@@ -179,11 +179,11 @@ class MainActivity : AppCompatActivity() {
 
         // 3. Download from HuggingFace
         withContext(Dispatchers.Main) {
-            binding.tvStatus.text = "📥 正在下载模型 (460MB)，请等待..."
+            binding.tvStatus.text = "📥 正在下载模型 (142MB)，请等待..."
         }
 
         try {
-            val url = URL("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin")
+            val url = URL("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin")
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 30000
             conn.readTimeout = 60000

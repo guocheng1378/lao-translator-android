@@ -72,9 +72,9 @@ class WhisperManager(private val context: Context) {
             }
         }
 
-        // 校验模型文件大小（ggml-small.bin 应该约 465MB）
+        // 校验模型文件大小（ggml-base.bin 应该约 142MB）
         val fileSize = modelFile.length()
-        if (fileSize < 100_000_000) {
+        if (fileSize < 50_000_000) {
             Log.e(TAG, "模型文件过小 ($fileSize bytes)，可能下载不完整")
             throw IllegalStateException("模型文件不完整 (${fileSize / 1024 / 1024}MB)，请删除后重启应用重新下载")
         }
