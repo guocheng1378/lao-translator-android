@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private var autoSpeak = true
     private var isProcessing = false
     private var modelsReady = false
+    private var whisperReady = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -101,6 +102,7 @@ class MainActivity : AppCompatActivity() {
                     whisper.init("ggml-small.bin")
                 }
                 whisper.warmup()
+                whisperReady = true
                 modelsReady = true
                 binding.tvStatus.text = "🎙️ 语音就绪，翻译模型加载中..."
                 Log.d(TAG, "Whisper 加载完成, nativeLoaded=${WhisperManager.nativeLoaded}")
@@ -116,10 +118,14 @@ class MainActivity : AppCompatActivity() {
             try {
                 withContext(Dispatchers.IO) { translator.init() }
                 Log.d(TAG, "翻译模型加载完成")
+                // 翻译就绪后更新状态（仅当 Whisper 也已就绪）
+                if (whisperReady) {
+                    binding.tvStatus.text = "✅ 全部就绪，点击麦克风开始"
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "翻译模型加载失败", e)
-                withContext(Dispatchers.Main) {
-                    binding.tvStatus.text = "⚠️ 翻译模型加载失败: ${e.message}"
+                if (whisperReady) {
+                    binding.tvStatus.text = "🎙️ 语音就绪（翻译不可用: ${e.message}），点击麦克风开始"
                 }
             }
         }
@@ -254,7 +260,8 @@ class MainActivity : AppCompatActivity() {
 
         if (result.text.isBlank()) {
             Log.w(TAG, "transcribeAuto 返回空文本! chunk #$chunkCount")
-            binding.tvStatus.text = "🎙️ 监听中... (有效 #$chunkCount, 跳过静音 #$skipCount)"
+            skipCount++
+            binding.tvStatus.text = "🎙️ 监听中... (有效 #$chunkCount, 跳过 #$skipCount)"
             return
         }
 
