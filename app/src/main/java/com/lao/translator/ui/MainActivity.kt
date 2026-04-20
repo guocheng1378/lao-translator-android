@@ -91,42 +91,45 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initModels() {
-        binding.tvStatus.text = "⚡ 正在加载模型..."
+        binding.tvStatus.text = "⚡ 正在加载语音模型..."
 
+        // Whisper 必须先加载完才能用
         lifecycleScope.launch {
             try {
-                val whisperJob = async(Dispatchers.IO) {
+                withContext(Dispatchers.IO) {
                     ensureModelExists("ggml-small.bin")
                     whisper.init("ggml-small.bin")
                 }
-                val translateJob = async(Dispatchers.IO) {
-                    translator.init()
-                }
-                val ttsJob = async(Dispatchers.IO) {
-                    tts.init()
-                }
-
-                whisperJob.await()
-                translateJob.await()
-                ttsJob.await()
-
-                Log.d(TAG, "所有模型加载完成, whisper.nativeLoaded=${WhisperManager.nativeLoaded}")
                 whisper.warmup()
-
-                val ttsInfo = mutableListOf<String>()
-                if (tts.isChineseAvailable()) ttsInfo.add("中文✅") else ttsInfo.add("中文❌")
-                if (tts.isLaoAvailable()) ttsInfo.add("老挝语✅") else ttsInfo.add("老挝语❌")
-
-                if (!tts.isLaoAvailable()) {
-                    binding.tvStatus.text = "⚠️ 老挝语播报需安装 Google TTS 语言包"
-                } else {
-                    binding.tvStatus.text = "✅ 就绪 [${ttsInfo.joinToString(" ")}]，点击麦克风开始"
-                }
                 modelsReady = true
-
+                binding.tvStatus.text = "🎙️ 语音就绪，翻译模型加载中..."
+                Log.d(TAG, "Whisper 加载完成, nativeLoaded=${WhisperManager.nativeLoaded}")
             } catch (e: Exception) {
-                binding.tvStatus.text = "❌ 初始化失败: ${e.message}"
+                binding.tvStatus.text = "❌ 语音模型加载失败: ${e.message}"
                 modelsReady = false
+                return@launch
+            }
+        }
+
+        // 翻译和 TTS 后台加载，不阻塞主流程
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { translator.init() }
+                Log.d(TAG, "翻译模型加载完成")
+            } catch (e: Exception) {
+                Log.e(TAG, "翻译模型加载失败", e)
+                withContext(Dispatchers.Main) {
+                    binding.tvStatus.text = "⚠️ 翻译模型加载失败: ${e.message}"
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { tts.init() }
+                Log.d(TAG, "TTS 加载完成")
+            } catch (e: Exception) {
+                Log.e(TAG, "TTS 加载失败", e)
             }
         }
     }
@@ -204,8 +207,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startRealtimeTranslation() {
-        if (!modelsReady || !translator.isReady) {
-            Toast.makeText(this, "模型尚未加载完成，请稍候", Toast.LENGTH_SHORT).show()
+        if (!modelsReady) {
+            Toast.makeText(this, "语音模型尚未加载完成，请稍候", Toast.LENGTH_SHORT).show()
             return
         }
         Log.d(TAG, "startRealtimeTranslation 调用")
