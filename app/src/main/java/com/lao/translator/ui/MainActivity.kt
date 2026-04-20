@@ -268,7 +268,7 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "processChunk #$chunkCount, audioChunk.size=${audioChunk.size}")
 
         val result = try {
-            withTimeout(15_000) {
+            withTimeout(30_000) {
                 withContext(Dispatchers.Default) {
                     whisper.transcribeAuto(audioChunk)
                 }

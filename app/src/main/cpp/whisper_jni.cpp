@@ -69,7 +69,7 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
 
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.language = "auto";
-    params.n_threads = 2;
+    params.n_threads = 4;
     params.print_realtime = false;
     params.print_progress = false;
     params.print_timestamps = false;
