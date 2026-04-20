@@ -1,22 +1,19 @@
 package com.lao.translator.stt
 
 import android.annotation.SuppressLint
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
+import android.content.Context
+import android.media.*
 import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.io.File
+import java.io.FileOutputStream
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
-/**
- * 智能流式录音器
- *
- * 自动检测 AudioRecord 是否正常工作：
- * - 正常 → 使用 AudioRecord 流式录音
- * - 被屏蔽（采集到静音）→ 使用 MediaRecorder 写 WAV 再读取
- */
-class AudioRecorder {
+class AudioRecorder(private val context: Context? = null) {
 
     companion object {
         private const val TAG = "AudioRecorder"
@@ -36,9 +33,13 @@ class AudioRecorder {
     private var audioRecord: AudioRecord? = null
     private var mediaRecorder: MediaRecorder? = null
     private var recordingJob: Job? = null
-    private var useMediaRecorder = false
+    private var audioManager: AudioManager? = null
+    private var focusRequest: AudioFocusRequest? = null
     private val _state = MutableStateFlow<RecordState>(RecordState.Idle)
     val state: StateFlow<RecordState> = _state
+
+    private enum class RecordMode { AUDIO_RECORD, MEDIA_RECORDER }
+    private var activeMode = RecordMode.AUDIO_RECORD
 
     @SuppressLint("MissingPermission")
     fun startRecording(
@@ -47,89 +48,104 @@ class AudioRecorder {
         onChunk: (FloatArray) -> Unit
     ) {
         stopRecording()
-        startAudioRecord(chunkDurationMs, overlapMs, onChunk)
-    }
 
-    /**
-     * AudioRecord 流式录音
-     */
-    @SuppressLint("MissingPermission")
-    private fun startAudioRecord(
-        chunkDurationMs: Int,
-        overlapMs: Int,
-        onChunk: (FloatArray) -> Unit
-    ) {
-        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-        if (bufferSize <= 0) {
-            Log.e(TAG, "getMinBufferSize 失败: $bufferSize")
-            _state.value = RecordState.Error("无法获取录音缓冲区")
-            return
-        }
+        // 请求音频焦点（HyperOS 可能需要）
+        requestAudioFocus()
 
-        val samplesPerChunk = SAMPLE_RATE * chunkDurationMs / 1000
-        val overlapSamples = SAMPLE_RATE * overlapMs / 1000
-        val windowSamples = samplesPerChunk + overlapSamples
-
-        // 尝试多个 audio source
+        // 逐个尝试 audio source，找到能采集到声音的
         val sources = listOf(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.UNPROCESSED,
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.CAMCORDER
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION
         )
 
-        var foundSource = -1
+        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+        if (bufferSize <= 0) {
+            Log.e(TAG, "getMinBufferSize 失败，直接走 MediaRecorder")
+            startMediaRecorderMode(chunkDurationMs, onChunk)
+            return
+        }
+
         for (src in sources) {
             try {
-                audioRecord = AudioRecord(src, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize * 2)
-                if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
-                    audioRecord?.startRecording()
-                    // 快速测试：读 0.5 秒
-                    val testBuf = ShortArray(SAMPLE_RATE / 2)
-                    val read = audioRecord?.read(testBuf, 0, testBuf.size) ?: 0
-                    if (read > 0) {
-                        val energy = calcEnergy(testBuf, read)
-                        Log.d(TAG, "AudioRecord test: source=$src, energy=$energy, read=$read")
-                        if (energy > 0.00001f) { // 只要不是绝对静音就行
-                            foundSource = src
-                            audioRecord?.stop()
-                            audioRecord?.release()
-                            audioRecord = null
-                            break
-                        }
-                    }
-                    audioRecord?.stop()
-                    audioRecord?.release()
-                    audioRecord = null
-                } else {
-                    audioRecord?.release()
-                    audioRecord = null
+                val ar = AudioRecord(src, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize * 2)
+                if (ar.state != AudioRecord.STATE_INITIALIZED) {
+                    ar.release()
+                    continue
                 }
+                ar.startRecording()
+                // 读 1 秒测试
+                val test = ShortArray(SAMPLE_RATE)
+                val read = ar.read(test, 0, test.size)
+                if (read > 0) {
+                    val energy = calcEnergyShort(test, read)
+                    Log.d(TAG, "AudioRecord test: source=$src energy=$energy read=$read")
+                    if (energy > 0.000001f) { // 极低阈值，只要不是严格零就行
+                        Log.d(TAG, "✅ AudioRecord 可用 (source=$src)")
+                        ar.stop(); ar.release()
+                        activeMode = RecordMode.AUDIO_RECORD
+                        startAudioRecord(src, bufferSize, chunkDurationMs, overlapMs, onChunk)
+                        return
+                    }
+                }
+                ar.stop(); ar.release()
+                Log.w(TAG, "AudioRecord source=$src: 全静音")
             } catch (e: Exception) {
                 Log.w(TAG, "AudioRecord source=$src 异常: ${e.message}")
-                audioRecord?.release()
-                audioRecord = null
             }
         }
 
-        if (foundSource < 0) {
-            // 所有 AudioRecord source 都被屏蔽，降级到 MediaRecorder
-            Log.w(TAG, "所有 AudioRecord source 被屏蔽，降级到 MediaRecorder")
-            startMediaRecorderFallback(chunkDurationMs, overlapMs, onChunk)
-            return
-        }
+        // 全部静音 → MediaRecorder 降级
+        Log.w(TAG, "所有 AudioRecord 源均被静音，降级到 MediaRecorder")
+        startMediaRecorderMode(chunkDurationMs, onChunk)
+    }
 
-        // 用找到的正常 source 重新初始化
-        Log.d(TAG, "使用 AudioRecord source=$foundSource")
-        audioRecord = AudioRecord(foundSource, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize * 2)
+    private fun requestAudioFocus() {
+        try {
+            audioManager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            if (audioManager != null) {
+                val focusReq = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setOnAudioFocusChangeListener { }
+                    .build()
+                val result = audioManager?.requestAudioFocus(focusReq)
+                focusRequest = focusReq
+                Log.d(TAG, "音频焦点请求: $result")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "音频焦点请求失败: ${e.message}")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startAudioRecord(
+        audioSource: Int,
+        bufferSize: Int,
+        chunkDurationMs: Int,
+        overlapMs: Int,
+        onChunk: (FloatArray) -> Unit
+    ) {
+        val samplesPerChunk = SAMPLE_RATE * chunkDurationMs / 1000
+        val overlapSamples = SAMPLE_RATE * overlapMs / 1000
+        val windowSamples = samplesPerChunk + overlapSamples
+
+        audioRecord = AudioRecord(audioSource, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize * 2)
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            _state.value = RecordState.Error("AudioRecord 重新初始化失败")
+            _state.value = RecordState.Error("AudioRecord 初始化失败")
             return
         }
-
         audioRecord?.startRecording()
+
         var chunkCount = 0
         var skippedCount = 0
+        var consecutiveSilence = 0
 
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
             val window = FloatArray(windowSamples)
@@ -155,14 +171,27 @@ class AudioRecorder {
 
                     if (hasVoice || (firstChunk && energy > 0.003f)) {
                         chunkCount++
-                        Log.d(TAG, "chunk #$chunkCount: voice=$hasVoice energy=$energy")
+                        consecutiveSilence = 0
+                        Log.d(TAG, "chunk #$chunkCount: voice energy=$energy")
                         _state.value = RecordState.Recording(chunkCount, skippedCount)
                         onChunk(chunk)
                         firstChunk = false
                     } else {
                         skippedCount++
-                        Log.d(TAG, "chunk 跳过: 静音 #$skippedCount energy=$energy")
+                        consecutiveSilence++
+                        Log.d(TAG, "静音 #$skippedCount energy=$energy")
                         _state.value = RecordState.Recording(chunkCount, skippedCount)
+
+                        // 连续 5 个静音 chunk → 自动降级到 MediaRecorder
+                        if (consecutiveSilence >= 5 && !firstChunk) {
+                            Log.w(TAG, "连续 $consecutiveSilence 个静音 chunk，降级到 MediaRecorder")
+                            audioRecord?.stop(); audioRecord?.release(); audioRecord = null
+                            activeMode = RecordMode.MEDIA_RECORDER
+                            startMediaRecorderMode(chunkDurationMs) { audio ->
+                                onChunk(audio)
+                            }
+                            return@launch
+                        }
                     }
 
                     System.arraycopy(window, samplesPerChunk, window, 0, overlapSamples)
@@ -173,18 +202,16 @@ class AudioRecorder {
     }
 
     /**
-     * MediaRecorder 降级方案 — 分段录制 WAV 文件，读取 PCM
-     *
-     * 原理：MediaRecorder 在 HyperOS 上不受屏蔽，通过分段录制短 WAV
-     * 文件然后读取 PCM 数据来实现流式录音。
+     * MediaRecorder 降级模式
+     * 分段录制 WAV，读取 PCM → FloatArray
      */
     @SuppressLint("MissingPermission")
-    private fun startMediaRecorderFallback(
+    private fun startMediaRecorderMode(
         chunkDurationMs: Int,
-        overlapMs: Int,
         onChunk: (FloatArray) -> Unit
     ) {
-        Log.d(TAG, "=== 使用 MediaRecorder 降级模式 ===")
+        Log.d(TAG, "=== MediaRecorder 模式 ===")
+        activeMode = RecordMode.MEDIA_RECORDER
         var chunkCount = 0
         var skippedCount = 0
         var segIdx = 0
@@ -193,15 +220,14 @@ class AudioRecorder {
             _state.value = RecordState.Recording(0, 0)
 
             while (isActive) {
-                val tmpFile = java.io.File.createTempFile("rec_${segIdx++}_", ".wav")
+                val tmpFile = File(context?.cacheDir ?: File("/tmp"), "mr_seg_${segIdx++}.wav")
                 try {
-                    // 录制 WAV (PCM 16-bit 16kHz mono)
                     mediaRecorder = MediaRecorder().apply {
                         setAudioSource(MediaRecorder.AudioSource.MIC)
                         setOutputFormat(MediaRecorder.OutputFormat.DEFAULT)
                         setAudioEncoder(MediaRecorder.AudioEncoder.DEFAULT)
                         setAudioSamplingRate(SAMPLE_RATE)
-                        setAudioEncodingBitRate(256000)
+                        setAudioEncodingBitRate(128000)
                         setOutputFile(tmpFile.absolutePath)
                         prepare()
                         start()
@@ -209,19 +235,14 @@ class AudioRecorder {
 
                     delay(chunkDurationMs.toLong())
 
-                    mediaRecorder?.apply {
-                        stop()
-                        release()
-                    }
+                    mediaRecorder?.apply { stop(); release() }
                     mediaRecorder = null
 
-                    // 读取 WAV 中的 PCM 数据
                     val pcm = readWavPcm(tmpFile)
                     if (pcm != null && pcm.isNotEmpty()) {
                         val energy = calcEnergy(pcm)
-                        Log.d(TAG, "MediaRecorder chunk: size=${pcm.size}, energy=$energy")
-
-                        if (energy > 0.0005f) {
+                        Log.d(TAG, "MR chunk: size=${pcm.size} energy=$energy")
+                        if (energy > 0.0003f) {
                             chunkCount++
                             _state.value = RecordState.Recording(chunkCount, skippedCount)
                             onChunk(pcm)
@@ -231,7 +252,7 @@ class AudioRecorder {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "MediaRecorder chunk 失败: ${e.message}")
+                    Log.e(TAG, "MR 录制异常: ${e.message}")
                     try { mediaRecorder?.release() } catch (_: Exception) {}
                     mediaRecorder = null
                     delay(500)
@@ -242,37 +263,25 @@ class AudioRecorder {
         }
     }
 
-    /**
-     * 从 WAV 文件读取 PCM 数据（跳过 44 字节头）
-     */
-    private fun readWavPcm(file: java.io.File): FloatArray? {
+    private fun readWavPcm(file: File): FloatArray? {
         if (!file.exists() || file.length() < 44) return null
         return try {
             val bytes = file.readBytes()
-            val headerSize = if (bytes.size > 44) {
-                // 搜索 "data" chunk
-                var pos = 12
-                while (pos < bytes.size - 8) {
-                    val id = String(bytes, pos, 4)
-                    val size = (bytes[pos+4].toInt() and 0xFF) or
-                            ((bytes[pos+5].toInt() and 0xFF) shl 8) or
-                            ((bytes[pos+6].toInt() and 0xFF) shl 16) or
-                            ((bytes[pos+7].toInt() and 0xFF) shl 24)
-                    if (id == "data") { pos += 8; break }
-                    pos += 8 + size
-                }
-                pos
-            } else 44
-
-            val pcmBytes = bytes.copyOfRange(headerSize, bytes.size)
-            val shorts = java.nio.ByteBuffer.wrap(pcmBytes)
-                .order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                .asShortBuffer()
-            val result = FloatArray(shorts.remaining())
-            for (i in result.indices) {
-                result[i] = shorts.get() / 32768.0f
+            // 找 data chunk
+            var pos = 12
+            while (pos < bytes.size - 8) {
+                val id = String(bytes, pos, 4)
+                val size = ByteBuffer.wrap(bytes, pos + 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
+                if (id == "data") { pos += 8; break }
+                pos += 8 + size
+                if (size <= 0) break
             }
-            result
+            if (pos >= bytes.size - 2) return null
+            val pcmBytes = bytes.copyOfRange(pos, bytes.size)
+            val buf = ByteBuffer.wrap(pcmBytes).order(ByteOrder.LITTLE_ENDIAN)
+            val shorts = ShortArray(pcmBytes.size / 2)
+            buf.asShortBuffer().get(shorts)
+            FloatArray(shorts.size) { shorts[it] / 32768.0f }
         } catch (e: Exception) {
             Log.e(TAG, "读取 WAV 失败: ${e.message}")
             null
@@ -293,32 +302,24 @@ class AudioRecorder {
             if (e > ENERGY_THRESHOLD) voiced++
         }
         val ratio = voiced.toFloat() / totalFrames
-        Log.d(TAG, "VAD: $voiced/$totalFrames ratio=$ratio")
         return ratio > (1f - SILENCE_RATIO_THRESHOLD)
     }
 
-    private fun calcEnergy(samples: FloatArray): Float {
-        var e = 0f
-        for (s in samples) e += s * s
-        return e / samples.size
+    private fun calcEnergy(s: FloatArray): Float {
+        var e = 0f; for (v in s) e += v * v; return e / s.size
     }
 
-    private fun calcEnergy(samples: ShortArray, count: Int): Float {
-        var e = 0.0
-        for (i in 0 until count) {
-            val v = samples[i] / 32768.0
-            e += v * v
-        }
-        return (e / count).toFloat()
+    private fun calcEnergyShort(s: ShortArray, count: Int): Float {
+        var e = 0.0; for (i in 0 until count) { val v = s[i] / 32768.0; e += v * v }; return (e / count).toFloat()
     }
 
     fun stopRecording() {
-        recordingJob?.cancel()
-        recordingJob = null
+        recordingJob?.cancel(); recordingJob = null
         audioRecord?.stop(); audioRecord?.release(); audioRecord = null
         try { mediaRecorder?.stop() } catch (_: Exception) {}
         try { mediaRecorder?.release() } catch (_: Exception) {}
         mediaRecorder = null
+        try { focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) } } catch (_: Exception) {}
         _state.value = RecordState.Idle
     }
 

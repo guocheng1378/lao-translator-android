@@ -58,7 +58,7 @@ class MainActivity : AppCompatActivity() {
         whisper = WhisperManager(this)
         translator = TranslationManager(this)
         tts = TtsManager(this)
-        recorder = AudioRecorder()
+        recorder = AudioRecorder(this)
 
         setupUI()
         initModels()
