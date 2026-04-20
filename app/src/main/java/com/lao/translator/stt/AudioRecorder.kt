@@ -20,8 +20,9 @@ class AudioRecorder(private val context: Context? = null) {
         const val SAMPLE_RATE = 16000
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val ENERGY_THRESHOLD = 0.008f
+        private const val ENERGY_THRESHOLD = 0.001f
         private const val SILENCE_RATIO_THRESHOLD = 0.85f
+        private const val TEST_ENERGY_THRESHOLD = 0.0000001f
     }
 
     sealed class RecordState {
@@ -52,11 +53,11 @@ class AudioRecorder(private val context: Context? = null) {
         // 请求音频焦点（HyperOS 可能需要）
         requestAudioFocus()
 
-        // 逐个尝试 audio source，找到能采集到声音的
+        // MIC 放第一位，其他作为降级
         val sources = listOf(
+            MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.UNPROCESSED,
-            MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.CAMCORDER,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION
         )
@@ -76,22 +77,36 @@ class AudioRecorder(private val context: Context? = null) {
                     continue
                 }
                 ar.startRecording()
-                // 读 1 秒测试
-                val test = ShortArray(SAMPLE_RATE)
-                val read = ar.read(test, 0, test.size)
-                if (read > 0) {
-                    val energy = calcEnergyShort(test, read)
-                    Log.d(TAG, "AudioRecord test: source=$src energy=$energy read=$read")
-                    if (energy > 0.000001f) { // 极低阈值，只要不是严格零就行
-                        Log.d(TAG, "✅ AudioRecord 可用 (source=$src)")
+                // 读 1 秒测试，多读几次取最高值（有些设备启动后前几帧是静音）
+                var maxEnergy = 0f
+                var totalRead = 0
+                for (attempt in 0..2) {
+                    val test = ShortArray(SAMPLE_RATE)
+                    val read = ar.read(test, 0, test.size)
+                    if (read > 0) {
+                        totalRead += read
+                        val energy = calcEnergyShort(test, read)
+                        if (energy > maxEnergy) maxEnergy = energy
+                    }
+                }
+                Log.d(TAG, "AudioRecord test: source=$src maxEnergy=$maxEnergy totalRead=$totalRead")
+                if (totalRead > 0) {
+                    // 优先用 MIC，否则取第一个能读数据的源
+                    if (src == MediaRecorder.AudioSource.MIC || maxEnergy > TEST_ENERGY_THRESHOLD) {
+                        Log.d(TAG, "✅ AudioRecord 可用 (source=$src, energy=$maxEnergy)")
                         ar.stop(); ar.release()
                         activeMode = RecordMode.AUDIO_RECORD
                         startAudioRecord(src, bufferSize, chunkDurationMs, overlapMs, onChunk)
                         return
                     }
+                    // 非 MIC 源但能读数据，先记住，继续尝试 MIC
+                    Log.d(TAG, "AudioRecord source=$src 能读数据但非首选，继续尝试 MIC")
+                    ar.stop(); ar.release()
+                    // 不 break，让循环继续找 MIC
+                } else {
+                    ar.stop(); ar.release()
+                    Log.w(TAG, "AudioRecord source=$src: 无法读取数据")
                 }
-                ar.stop(); ar.release()
-                Log.w(TAG, "AudioRecord source=$src: 全静音")
             } catch (e: Exception) {
                 Log.w(TAG, "AudioRecord source=$src 异常: ${e.message}")
             }
@@ -169,7 +184,7 @@ class AudioRecorder(private val context: Context? = null) {
                     val hasVoice = detectVoice(chunk)
                     val energy = calcEnergy(chunk)
 
-                    if (hasVoice || (firstChunk && energy > 0.003f)) {
+                    if (hasVoice || (firstChunk && energy > 0.0005f)) {
                         chunkCount++
                         consecutiveSilence = 0
                         Log.d(TAG, "chunk #$chunkCount: voice energy=$energy")
@@ -182,9 +197,10 @@ class AudioRecorder(private val context: Context? = null) {
                         Log.d(TAG, "静音 #$skippedCount energy=$energy")
                         _state.value = RecordState.Recording(chunkCount, skippedCount)
 
-                        // 连续 5 个静音 chunk → 自动降级到 MediaRecorder
-                        if (consecutiveSilence >= 5 && !firstChunk) {
-                            Log.w(TAG, "连续 $consecutiveSilence 个静音 chunk，降级到 MediaRecorder")
+                        // 连续 15 个静音 chunk（约30秒）且从未检测到语音 → 降级到 MediaRecorder
+                        // 已经有语音 chunk 时不降级
+                        if (consecutiveSilence >= 15 && chunkCount == 0) {
+                            Log.w(TAG, "连续 $consecutiveSilence 个静音 chunk 且无语音，降级到 MediaRecorder")
                             audioRecord?.stop(); audioRecord?.release(); audioRecord = null
                             activeMode = RecordMode.MEDIA_RECORDER
                             startMediaRecorderMode(chunkDurationMs) { audio ->
