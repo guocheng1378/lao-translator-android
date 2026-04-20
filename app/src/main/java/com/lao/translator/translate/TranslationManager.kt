@@ -99,8 +99,8 @@ class TranslationManager {
 
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-        conn.connectTimeout = 10000
-        conn.readTimeout = 15000
+        conn.setConnectTimeout(10000)
+        conn.setReadTimeout(15000)
 
         try {
             conn.connect()
