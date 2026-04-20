@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "LaoTranslator"
-include ':app'
+include(":app")
