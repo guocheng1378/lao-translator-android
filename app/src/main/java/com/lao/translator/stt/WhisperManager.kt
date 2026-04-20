@@ -72,11 +72,25 @@ class WhisperManager(private val context: Context) {
             }
         }
 
+        // 校验模型文件大小（ggml-small.bin 应该约 465MB）
+        val fileSize = modelFile.length()
+        if (fileSize < 100_000_000) {
+            Log.e(TAG, "模型文件过小 ($fileSize bytes)，可能下载不完整")
+            throw IllegalStateException("模型文件不完整 (${fileSize / 1024 / 1024}MB)，请删除后重启应用重新下载")
+        }
+
+        val rt = Runtime.getRuntime()
+        Log.d(TAG, "内存状态: 可用=${rt.freeMemory() / 1024 / 1024}MB, 最大=${rt.maxMemory() / 1024 / 1024}MB")
         Log.d(TAG, "开始 nativeInit, 路径: ${modelFile.absolutePath}")
+
+        val t0 = System.currentTimeMillis()
         isInitialized = nativeInit(modelFile.absolutePath)
-        Log.d(TAG, "nativeInit 返回: $isInitialized, 文件大小: ${modelFile.length()} bytes")
+        val elapsed = System.currentTimeMillis() - t0
+
+        Log.d(TAG, "nativeInit 返回: $isInitialized, 耗时=${elapsed}ms, 文件大小=${fileSize} bytes")
         if (!isInitialized) {
             Log.e(TAG, "nativeInit 失败！模型可能损坏或格式不正确")
+            throw IllegalStateException("Whisper 模型初始化失败（耗时${elapsed}ms），模型文件可能损坏")
         }
         isInitialized
     }

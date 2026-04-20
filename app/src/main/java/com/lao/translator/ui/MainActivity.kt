@@ -93,21 +93,36 @@ class MainActivity : AppCompatActivity() {
 
     private fun initModels() {
         binding.tvStatus.text = "⚡ 正在加载语音模型..."
+        Log.d(TAG, "initModels 开始, nativeLoaded=${WhisperManager.nativeLoaded}, " +
+                "可用内存=${Runtime.getRuntime().freeMemory() / 1024 / 1024}MB, " +
+                "最大内存=${Runtime.getRuntime().maxMemory() / 1024 / 1024}MB")
 
         // Whisper 必须先加载完才能用
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    ensureModelExists("ggml-small.bin")
-                    whisper.init("ggml-small.bin")
+                withTimeout(120_000) { // 2 分钟超时
+                    withContext(Dispatchers.IO) {
+                        ensureModelExists("ggml-small.bin")
+                        Log.d(TAG, "模型文件就绪, 开始 nativeInit")
+                        val t0 = System.currentTimeMillis()
+                        whisper.init("ggml-small.bin")
+                        Log.d(TAG, "nativeInit 完成, 耗时=${System.currentTimeMillis() - t0}ms")
+                    }
+                    // 跳过 warmup — 它会导致小米设备上的 whisper 崩溃
+                    // warmup 只是预热 JIT，不影响实际使用
+                    whisperReady = true
+                    modelsReady = true
+                    binding.tvStatus.text = "🎙️ 语音就绪，翻译模型加载中..."
+                    Log.d(TAG, "Whisper 加载完成")
                 }
-                whisper.warmup()
-                whisperReady = true
-                modelsReady = true
-                binding.tvStatus.text = "🎙️ 语音就绪，翻译模型加载中..."
-                Log.d(TAG, "Whisper 加载完成, nativeLoaded=${WhisperManager.nativeLoaded}")
+            } catch (e: TimeoutCancellationException) {
+                binding.tvStatus.text = "❌ 语音模型加载超时（2分钟），请重启应用"
+                Log.e(TAG, "Whisper 加载超时", e)
+                modelsReady = false
+                return@launch
             } catch (e: Exception) {
                 binding.tvStatus.text = "❌ 语音模型加载失败: ${e.message}"
+                Log.e(TAG, "Whisper 加载失败", e)
                 modelsReady = false
                 return@launch
             }
