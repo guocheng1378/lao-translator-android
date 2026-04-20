@@ -25,6 +25,10 @@ add_library(ggml-backend STATIC
     ${WHISPER_DIR}/ggml/src/ggml-threading.cpp
 )
 
+# 关键：定义 GGML_USE_CPU 使 ggml-backend-reg.cpp 编译入 CPU 后端注册代码
+# 没有这个宏，后端注册表为空，whisper_init_from_file 会 SIGSEGV
+target_compile_definitions(ggml-backend PRIVATE GGML_USE_CPU)
+
 target_include_directories(ggml-backend PUBLIC
     ${WHISPER_DIR}/ggml/include
     ${WHISPER_DIR}/ggml/src

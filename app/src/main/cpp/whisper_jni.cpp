@@ -1,24 +1,33 @@
 #include <jni.h>
 #include <string>
 #include <mutex>
+#include <android/log.h>
 #include "whisper.h"
 #include "ggml-backend.h"
+
+#define TAG "whisper_jni"
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 
 static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
 static bool g_backend_ready = false;
 
-// Ensure CPU backend is registered before whisper_init_from_file
-// whisper_init_from_file calls ggml_backend_dev_backend_reg which requires
-// the CPU backend to be in the registry. ggml_backend_init_by_type triggers
-// implicit registration as a side effect.
-static void ensure_backend() {
-    if (g_backend_ready) return;
+// Ensure CPU backend is registered before whisper_init_from_file.
+// With GGML_USE_CPU defined, ggml-backend-reg.cpp auto-registers the CPU backend.
+// ggml_backend_init_by_type triggers implicit registration as a side effect.
+static bool ensure_backend() {
+    if (g_backend_ready) return true;
     ggml_backend_t backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
     if (backend) {
         ggml_backend_free(backend);
+        g_backend_ready = true;
+        return true;
     }
-    g_backend_ready = true;
+    // 后端初始化失败，不要标记为 ready
+    __android_log_print(ANDROID_LOG_ERROR, "whisper_jni",
+                        "ensure_backend: CPU backend init failed!");
+    return false;
 }
 
 extern "C" {
@@ -28,10 +37,22 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
         JNIEnv *env, jobject thiz, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     std::lock_guard<std::mutex> lock(g_mutex);
-    ensure_backend();
+
+    if (!ensure_backend()) {
+        LOGE("nativeInit: CPU backend not available, aborting init");
+        env->ReleaseStringUTFChars(model_path, path);
+        return JNI_FALSE;
+    }
+
     if (g_ctx) whisper_free(g_ctx);
     g_ctx = whisper_init_from_file(path);
     env->ReleaseStringUTFChars(model_path, path);
+
+    if (g_ctx) {
+        LOGI("nativeInit: whisper context initialized OK");
+    } else {
+        LOGE("nativeInit: whisper_init_from_file FAILED for: %s", path);
+    }
     return g_ctx != nullptr;
 }
 
