@@ -21,24 +21,23 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: Download whisper.cpp source
         run: |
           cd app/src/main/cpp
           rm -rf whisper
           git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git whisper
-          # 清理不需要的目录，保留需要的
           cd whisper
           rm -rf examples tests bindings ci scripts models samples grammars build-xcframework.sh
           rm -rf ggml/src/ggml-cuda ggml/src/ggml-hip ggml/src/ggml-vulkan ggml/src/ggml-metal ggml/src/ggml-sycl ggml/src/ggml-opencl ggml/src/ggml-cann ggml/src/ggml-hexagon ggml/src/ggml-musa ggml/src/ggml-openvino ggml/src/ggml-rpc ggml/src/ggml-virtgpu ggml/src/ggml-webgpu ggml/src/ggml-zdnn ggml/src/ggml-zendnn ggml/src/ggml-blas ggml/src/ggml-opt.cpp
           rm -rf src/coreml src/openvino
-          echo "=== 保留的文件 ==="
-          find . -name "*.c" -o -name "*.cpp" -o -name "*.h" | sort
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
 
       - name: Build APK
-        run: ./gradlew assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
