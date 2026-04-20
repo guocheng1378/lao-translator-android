@@ -43,78 +43,83 @@ class AudioRecorder(private val context: Context? = null) {
     private var activeMode = RecordMode.AUDIO_RECORD
 
     @SuppressLint("MissingPermission")
+    private var scope: CoroutineScope? = null
+
     fun startRecording(
         chunkDurationMs: Int = 2000,
         overlapMs: Int = 500,
         onChunk: (FloatArray) -> Unit
     ) {
         stopRecording()
+        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
         // 请求音频焦点（HyperOS 可能需要）
         requestAudioFocus()
 
-        // MIC 放第一位，其他作为降级
-        val sources = listOf(
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.UNPROCESSED,
-            MediaRecorder.AudioSource.CAMCORDER,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION
-        )
+        scope?.launch {
+            // MIC 放第一位，其他作为降级
+            val sources = listOf(
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.CAMCORDER,
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION
+            )
 
-        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-        if (bufferSize <= 0) {
-            Log.e(TAG, "getMinBufferSize 失败，直接走 MediaRecorder")
-            startMediaRecorderMode(chunkDurationMs, onChunk)
-            return
-        }
-
-        for (src in sources) {
-            try {
-                val ar = AudioRecord(src, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize * 2)
-                if (ar.state != AudioRecord.STATE_INITIALIZED) {
-                    ar.release()
-                    continue
-                }
-                ar.startRecording()
-                // 读 1 秒测试，多读几次取最高值（有些设备启动后前几帧是静音）
-                var maxEnergy = 0f
-                var totalRead = 0
-                for (attempt in 0..2) {
-                    val test = ShortArray(SAMPLE_RATE)
-                    val read = ar.read(test, 0, test.size)
-                    if (read > 0) {
-                        totalRead += read
-                        val energy = calcEnergyShort(test, read)
-                        if (energy > maxEnergy) maxEnergy = energy
-                    }
-                }
-                Log.d(TAG, "AudioRecord test: source=$src maxEnergy=$maxEnergy totalRead=$totalRead")
-                if (totalRead > 0) {
-                    // 优先用 MIC，否则取第一个能读数据的源
-                    if (src == MediaRecorder.AudioSource.MIC || maxEnergy > TEST_ENERGY_THRESHOLD) {
-                        Log.d(TAG, "✅ AudioRecord 可用 (source=$src, energy=$maxEnergy)")
-                        ar.stop(); ar.release()
-                        activeMode = RecordMode.AUDIO_RECORD
-                        startAudioRecord(src, bufferSize, chunkDurationMs, overlapMs, onChunk)
-                        return
-                    }
-                    // 非 MIC 源但能读数据，先记住，继续尝试 MIC
-                    Log.d(TAG, "AudioRecord source=$src 能读数据但非首选，继续尝试 MIC")
-                    ar.stop(); ar.release()
-                    // 不 break，让循环继续找 MIC
-                } else {
-                    ar.stop(); ar.release()
-                    Log.w(TAG, "AudioRecord source=$src: 无法读取数据")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "AudioRecord source=$src 异常: ${e.message}")
+            val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+            if (bufferSize <= 0) {
+                Log.e(TAG, "getMinBufferSize 失败，直接走 MediaRecorder")
+                startMediaRecorderMode(chunkDurationMs, onChunk)
+                return@launch
             }
-        }
 
-        // 全部静音 → MediaRecorder 降级
-        Log.w(TAG, "所有 AudioRecord 源均被静音，降级到 MediaRecorder")
-        startMediaRecorderMode(chunkDurationMs, onChunk)
+            for (src in sources) {
+                try {
+                    val ar = AudioRecord(src, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize * 2)
+                    if (ar.state != AudioRecord.STATE_INITIALIZED) {
+                        ar.release()
+                        continue
+                    }
+                    ar.startRecording()
+                    // 读 1 秒测试，多读几次取最高值（有些设备启动后前几帧是静音）
+                    var maxEnergy = 0f
+                    var totalRead = 0
+                    for (attempt in 0..2) {
+                        val test = ShortArray(SAMPLE_RATE)
+                        val read = ar.read(test, 0, test.size)
+                        if (read > 0) {
+                            totalRead += read
+                            val energy = calcEnergyShort(test, read)
+                            if (energy > maxEnergy) maxEnergy = energy
+                        }
+                    }
+                    Log.d(TAG, "AudioRecord test: source=$src maxEnergy=$maxEnergy totalRead=$totalRead")
+                    if (totalRead > 0) {
+                        // 优先用 MIC，否则取第一个能读数据的源
+                        if (src == MediaRecorder.AudioSource.MIC || maxEnergy > TEST_ENERGY_THRESHOLD) {
+                            Log.d(TAG, "✅ AudioRecord 可用 (source=$src, energy=$maxEnergy)")
+                            ar.stop(); ar.release()
+                            activeMode = RecordMode.AUDIO_RECORD
+                            startAudioRecord(src, bufferSize, chunkDurationMs, overlapMs, onChunk)
+                            return@launch
+                        }
+                        // 非 MIC 源但能读数据，先记住，继续尝试 MIC
+                        Log.d(TAG, "AudioRecord source=$src 能读数据但非首选，继续尝试 MIC")
+                        ar.stop(); ar.release()
+                        // 不 break，让循环继续找 MIC
+                    } else {
+                        ar.stop(); ar.release()
+                        Log.w(TAG, "AudioRecord source=$src: 无法读取数据")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "AudioRecord source=$src 异常: ${e.message}")
+                }
+            }
+
+            // 全部静音 → MediaRecorder 降级
+            Log.w(TAG, "所有 AudioRecord 源均被静音，降级到 MediaRecorder")
+            startMediaRecorderMode(chunkDurationMs, onChunk)
+        }
     }
 
     private fun requestAudioFocus() {
@@ -330,6 +335,7 @@ class AudioRecorder(private val context: Context? = null) {
     }
 
     fun stopRecording() {
+        scope?.cancel(); scope = null
         recordingJob?.cancel(); recordingJob = null
         audioRecord?.stop(); audioRecord?.release(); audioRecord = null
         try { mediaRecorder?.stop() } catch (_: Exception) {}
