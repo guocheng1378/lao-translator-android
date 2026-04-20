@@ -8,23 +8,35 @@ echo "=== 老挝语翻译器 - 环境搭建 ==="
 
 # 1. 下载 whisper.cpp 源码
 CPP_DIR="app/src/main/cpp/whisper"
-if [ ! -f "$CPP_DIR/whisper.cpp" ]; then
+if [ ! -f "$CPP_DIR/include/whisper.h" ]; then
     echo "[1/3] 下载 whisper.cpp 源码..."
     git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git /tmp/whisper-tmp
-    cp /tmp/whisper-tmp/whisper.cpp "$CPP_DIR/"
-    cp /tmp/whisper-tmp/whisper.h "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml.c "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml.h "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml-alloc.c "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml-backend.c "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml-backend.h "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml-common.h "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml-impl.h "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml-quants.c "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml-quants.h "$CPP_DIR/"
-    cp /tmp/whisper-tmp/ggml.h "$CPP_DIR/"
+    mkdir -p "$CPP_DIR/include" "$CPP_DIR/src" \
+             "$CPP_DIR/ggml/include" "$CPP_DIR/ggml/src/ggml-cpu"
+
+    # whisper core
+    cp /tmp/whisper-tmp/src/whisper.cpp       "$CPP_DIR/src/"
+    cp /tmp/whisper-tmp/include/whisper.h     "$CPP_DIR/include/"
+
+    # ggml core
+    cp /tmp/whisper-tmp/ggml/src/ggml.c          "$CPP_DIR/ggml/src/"
+    cp /tmp/whisper-tmp/ggml/src/ggml-alloc.c    "$CPP_DIR/ggml/src/"
+    cp /tmp/whisper-tmp/ggml/src/ggml-quants.c   "$CPP_DIR/ggml/src/"
+    cp /tmp/whisper-tmp/ggml/src/ggml-backend.cpp "$CPP_DIR/ggml/src/"
+    cp /tmp/whisper-tmp/ggml/src/ggml-threading.cpp "$CPP_DIR/ggml/src/" 2>/dev/null || true
+
+    # ggml CPU backend
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/ggml-cpu.c "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+
+    # ggml headers
+    cp /tmp/whisper-tmp/ggml/include/ggml.h      "$CPP_DIR/ggml/include/"
+    cp /tmp/whisper-tmp/ggml/include/ggml-backend.h "$CPP_DIR/ggml/include/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-common.h   "$CPP_DIR/ggml/src/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-impl.h     "$CPP_DIR/ggml/src/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-quants.h   "$CPP_DIR/ggml/src/" 2>/dev/null || true
+
     rm -rf /tmp/whisper-tmp
-    echo "    ✅ whisper.cpp 源码已复制"
+    echo "    ✅ whisper.cpp 源码已复制 (新目录结构)"
 else
     echo "[1/3] whisper.cpp 源码已存在，跳过"
 fi

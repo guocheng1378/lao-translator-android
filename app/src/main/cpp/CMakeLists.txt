@@ -18,9 +18,10 @@ target_include_directories(ggml PUBLIC
 )
 
 # ggml backend (CPU only)
+# ggml-backend-reg.cpp removed — causes SIGSEGV on some Android devices
+# during ggml_backend_dev_backend_reg() at startup.
 add_library(ggml-backend STATIC
     ${WHISPER_DIR}/ggml/src/ggml-backend.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-backend-reg.cpp
     ${WHISPER_DIR}/ggml/src/ggml-cpu/ggml-cpu.c
     ${WHISPER_DIR}/ggml/src/ggml-threading.cpp
 )
@@ -29,6 +30,11 @@ target_include_directories(ggml-backend PUBLIC
     ${WHISPER_DIR}/ggml/include
     ${WHISPER_DIR}/ggml/src
 )
+
+# Force CPU-only mode — skip dynamic backend registration entirely
+target_compile_definitions(ggml-backend PRIVATE GGML_USE_CPU_ONLY)
+target_compile_definitions(whisper PRIVATE GGML_USE_CPU_ONLY)
+
 target_link_libraries(ggml-backend ggml)
 
 # whisper

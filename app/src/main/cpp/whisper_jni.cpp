@@ -1,10 +1,30 @@
 #include <jni.h>
 #include <string>
 #include <mutex>
+#include <android/log.h>
 #include "whisper.h"
+#include "ggml-backend.h"
+
+#define LOG_TAG "WhisperJNI"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
+static bool g_backend_registered = false;
+
+// Manually register CPU backend (bypasses ggml-backend-reg.cpp which crashes on Android)
+static void ensure_cpu_backend() {
+    if (g_backend_registered) return;
+    LOGI("Registering GGML CPU backend manually...");
+    ggml_backend_device_t dev = ggml_backend_reg_dev_get(ggml_backend_cpu_reg(), 0);
+    if (dev) {
+        LOGI("CPU backend device registered: %s", ggml_backend_dev_name(dev));
+    } else {
+        LOGE("Failed to get CPU backend device!");
+    }
+    g_backend_registered = true;
+}
 
 extern "C" {
 
@@ -13,9 +33,19 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
         JNIEnv *env, jobject thiz, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     std::lock_guard<std::mutex> lock(g_mutex);
+
+    ensure_cpu_backend();
+
     if (g_ctx) whisper_free(g_ctx);
+    LOGI("Loading whisper model from: %s", path);
     g_ctx = whisper_init_from_file(path);
     env->ReleaseStringUTFChars(model_path, path);
+
+    if (g_ctx) {
+        LOGI("Whisper model loaded successfully");
+    } else {
+        LOGE("Failed to load whisper model!");
+    }
     return g_ctx != nullptr;
 }
 
