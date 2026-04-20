@@ -17,6 +17,10 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
+
+        aaptOptions {
+            noCompress += listOf("bin")
+        }
     }
 
     buildFeatures {
