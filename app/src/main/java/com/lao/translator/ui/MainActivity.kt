@@ -17,6 +17,8 @@ import com.lao.translator.tts.TtsManager
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,7 +34,7 @@ class MainActivity : AppCompatActivity() {
     private var chunkCount = 0
     private var skipCount = 0
     private var autoSpeak = true
-    private var isProcessing = false  // 防止重入
+    private var isProcessing = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -87,7 +89,6 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                // 并行初始化
                 val whisperJob = async(Dispatchers.IO) {
                     ensureModelExists("ggml-small.bin")
                     whisper.init("ggml-small.bin")
@@ -99,15 +100,12 @@ class MainActivity : AppCompatActivity() {
                     tts.init()
                 }
 
-                // 等待所有完成
                 whisperJob.await()
                 translateJob.await()
                 ttsJob.await()
 
-                // 预热 Whisper（消除首次冷启动延迟）
                 whisper.warmup()
 
-                // 状态展示
                 val ttsInfo = mutableListOf<String>()
                 if (tts.isChineseAvailable()) ttsInfo.add("中文✅") else ttsInfo.add("中文❌")
                 if (tts.isLaoAvailable()) ttsInfo.add("老挝语✅") else ttsInfo.add("老挝语❌")
@@ -130,14 +128,61 @@ class MainActivity : AppCompatActivity() {
         if (modelFile.exists()) return@withContext
 
         modelDir.mkdirs()
+
+        // 1. Try assets
         try {
             assets.open("models/$modelName").use { input ->
                 FileOutputStream(modelFile).use { output -> input.copyTo(output) }
             }
-        } catch (_: Exception) {
-            val ext = File(getExternalFilesDir(null), "models/$modelName")
-            if (ext.exists()) ext.copyTo(modelFile)
-            else throw IllegalStateException("请将模型放到: ${ext.absolutePath}")
+            return@withContext
+        } catch (_: Exception) {}
+
+        // 2. Try external storage
+        val ext = File(getExternalFilesDir(null), "models/$modelName")
+        if (ext.exists()) {
+            ext.copyTo(modelFile)
+            return@withContext
+        }
+
+        // 3. Download from HuggingFace
+        withContext(Dispatchers.Main) {
+            binding.tvStatus.text = "📥 正在下载模型 (460MB)，请等待..."
+        }
+
+        try {
+            val url = URL("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 30000
+            conn.readTimeout = 60000
+            conn.connect()
+
+            val totalBytes = conn.contentLength.toLong()
+            var downloadedBytes = 0L
+
+            conn.inputStream.use { input ->
+                FileOutputStream(modelFile).use { output ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    var lastProgress = -1
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        downloadedBytes += bytesRead
+                        if (totalBytes > 0) {
+                            val progress = (downloadedBytes * 100 / totalBytes).toInt()
+                            if (progress != lastProgress && progress % 10 == 0) {
+                                lastProgress = progress
+                                withContext(Dispatchers.Main) {
+                                    binding.tvStatus.text = "📥 下载模型中... ${progress}% (${downloadedBytes / 1024 / 1024}MB)"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            conn.disconnect()
+        } catch (e: Exception) {
+            modelFile.delete()
+            throw IllegalStateException("模型下载失败: ${e.message}\n请手动放到: ${ext.absolutePath}")
         }
     }
 
@@ -149,14 +194,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * 智能实时转译（优化版）
-     * 优化点：
-     * 1. VAD 跳过静音 — 不浪费识别时间
-     * 2. 重叠采样 — 不丢词
-     * 3. 并行处理 — 录音和识别并行
-     * 4. 防重入 — 上一段没处理完不接新段
-     */
     private fun startRealtimeTranslation() {
         sourceBuffer.clear()
         targetBuffer.clear()
@@ -172,9 +209,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvDetectedLang.text = "🎙️ 监听中..."
         setRecordingUI(true)
 
-        // 2秒切片 + 0.5秒重叠 = 更快响应且不丢词
         recorder.startRecording(chunkDurationMs = 2000, overlapMs = 500) { audioChunk ->
-            // 防重入：如果上一段还在处理，跳过
             if (isProcessing) return@startRecording
 
             chunkCount++
@@ -190,13 +225,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * 处理单个音频片段（识别 + 翻译 + 播报）
-     */
     private suspend fun processChunk(audioChunk: FloatArray) {
         binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
 
-        // 1. Whisper 识别（在后台线程）
         val result = withContext(Dispatchers.Default) {
             whisper.transcribeAuto(audioChunk)
         }
@@ -211,7 +242,6 @@ class MainActivity : AppCompatActivity() {
         val targetLangCode = targetLang(result.language)
         val targetLangName = langName(targetLangCode)
 
-        // 更新 UI
         binding.tvDetectedLang.text = "🌐 $sourceLangName → $targetLangName"
         binding.tvSourceLabel.text = "原文 ($sourceLangName)"
         binding.tvTargetLabel.text = "译文 ($targetLangName)"
@@ -219,7 +249,6 @@ class MainActivity : AppCompatActivity() {
         sourceBuffer.append(result.text)
         binding.tvSourceText.text = sourceBuffer.toString()
 
-        // 2. 翻译（在后台线程，和下一段录音并行）
         val dir = if (result.isLao)
             TranslationManager.TranslateDirection.LaoToChinese
         else
@@ -233,7 +262,6 @@ class MainActivity : AppCompatActivity() {
             targetBuffer.append(translated)
             binding.tvTargetText.text = targetBuffer.toString()
 
-            // 3. 播报
             if (autoSpeak) {
                 withContext(Dispatchers.Main) {
                     tts.speak(translated, targetLangCode)
