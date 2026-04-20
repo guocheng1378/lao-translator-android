@@ -1,4 +1,4 @@
-// whisper_jni.cpp — 优化版：更快出结果
+// whisper_jni.cpp
 
 #include <jni.h>
 #include <string>
@@ -39,17 +39,10 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     params.print_realtime = false;
     params.print_progress = false;
     params.print_timestamps = false;
-
-    // === 性能优化 ===
-    params.no_context = true;           // 每段独立，适合流式
-    params.single_segment = true;       // 只要一段，快速出结果
+    params.no_context = true;
+    params.single_segment = true;
     params.detect_language = auto_detect;
-
-    // 降低 beam_size 加速（greedy 模式 beam_size=1）
-    // 提前终止：如果概率够高就不继续
-    params.greedy.best_of = 1;          // greedy 只采样一次
-
-    // 不做 token 级别的时间戳
+    params.greedy.best_of = 1;
     params.token_timestamps = false;
 
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -57,9 +50,9 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
 
     std::string result;
     if (ret == 0) {
-        const auto *lang_id = whisper_lang_str(whisper_lang_id(g_ctx));
-        std::string detected_lang = lang_id ? lang_id : "unknown";
-        result = "LANG:" + detected_lang + "\n";
+        int detected_lang_id = whisper_lang_id(whisper_ctx_get_lang(g_ctx));
+        const char *lang_str = whisper_lang_str(detected_lang_id);
+        result = "LANG:" + std::string(lang_str ? lang_str : "unknown") + "\n";
 
         int n_segments = whisper_full_n_segments(g_ctx);
         for (int i = 0; i < n_segments; ++i) {
