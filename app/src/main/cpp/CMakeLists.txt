@@ -10,6 +10,9 @@ add_library(whisper STATIC
     ${WHISPER_DIR}/src/whisper.cpp
 )
 
+# ✅ 禁用 assert，否则 Release 构建会 SIGABRT 崩溃
+target_compile_definitions(whisper PRIVATE NDEBUG)
+
 target_include_directories(whisper PUBLIC
     ${WHISPER_DIR}/include
     ${WHISPER_DIR}/ggml/include
@@ -40,7 +43,8 @@ add_library(whisper_jni SHARED
     ${WHISPER_DIR}/ggml/src/ggml-cpu/arch/arm/quants.c
 )
 
-target_compile_definitions(whisper_jni PRIVATE GGML_USE_CPU)
+# ✅ 同样禁用 assert
+target_compile_definitions(whisper_jni PRIVATE GGML_USE_CPU NDEBUG)
 
 target_include_directories(whisper_jni PRIVATE
     ${WHISPER_DIR}/include
