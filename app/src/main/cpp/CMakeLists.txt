@@ -5,13 +5,15 @@ set(CMAKE_CXX_STANDARD 17)
 
 set(WHISPER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/whisper)
 
+# ✅ 全局定义：所有目标统一 GGML_USE_CPU + NDEBUG
+# 之前 whisper 静态库漏了 GGML_USE_CPU，导致 whisper.cpp 编译出的代码
+# 调用 ggml 后端时路径不一致，CPU device 注册失败 → SIGSEGV
+add_definitions(-DGGML_USE_CPU -DNDEBUG)
+
 # whisper (静态库)
 add_library(whisper STATIC
     ${WHISPER_DIR}/src/whisper.cpp
 )
-
-# ✅ 禁用 assert，否则 Release 构建会 SIGABRT 崩溃
-target_compile_definitions(whisper PRIVATE NDEBUG)
 
 target_include_directories(whisper PUBLIC
     ${WHISPER_DIR}/include
@@ -42,9 +44,6 @@ add_library(whisper_jni SHARED
     # arm64 NEON 优化的量化函数
     ${WHISPER_DIR}/ggml/src/ggml-cpu/arch/arm/quants.c
 )
-
-# ✅ 同样禁用 assert
-target_compile_definitions(whisper_jni PRIVATE GGML_USE_CPU NDEBUG)
 
 target_include_directories(whisper_jni PRIVATE
     ${WHISPER_DIR}/include

@@ -54,6 +54,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
-    // ML Kit Translation (离线翻译)
-    implementation("com.google.mlkit:translate:17.0.1")
+    // Translation uses HTTP (Google Translate Web API), no ML Kit needed
+    // ML Kit 不支持老挝语且在中国不可用，已改为 HTTP 翻译
 }
