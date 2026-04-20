@@ -31,6 +31,21 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     const char *lang = env->GetStringUTFChars(language, nullptr);
     bool auto_detect = (lang[0] == '\0');
 
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    // Auto-detect language if needed
+    std::string lang_prefix;
+    if (auto_detect) {
+        float lang_probs[100];
+        int detected_id = whisper_lang_auto_detect(g_ctx, 0, 4, lang_probs);
+        if (detected_id >= 0) {
+            const char *detected_str = whisper_lang_str(detected_id);
+            lang_prefix = "LANG:" + std::string(detected_str ? detected_str : "unknown") + "\n";
+        } else {
+            lang_prefix = "LANG:unknown\n";
+        }
+    }
+
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.language = auto_detect ? "auto" : lang;
     params.n_threads = 4;
@@ -43,11 +58,11 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     params.greedy.best_of = 1;
     params.token_timestamps = false;
 
-    std::lock_guard<std::mutex> lock(g_mutex);
     int ret = whisper_full(g_ctx, params, samples, n_samples);
 
     std::string result;
     if (ret == 0) {
+        result = lang_prefix;
         int n_segments = whisper_full_n_segments(g_ctx);
         for (int i = 0; i < n_segments; ++i) {
             const char *text = whisper_full_get_segment_text(g_ctx, i);
