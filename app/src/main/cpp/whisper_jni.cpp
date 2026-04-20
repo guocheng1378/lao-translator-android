@@ -11,7 +11,6 @@
 
 static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
-static std::mutex g_mutex;
 
 extern "C" {
 
