@@ -5,14 +5,15 @@ import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
 
 /**
  * 双向翻译管理器：老挝语 ↔ 中文
  * 使用 Google ML Kit，支持离线
+ *
+ * 注意：ML Kit 不支持老挝语(Lao)，
+ * 当前使用泰语(Thai)作为近似替代
  */
 class TranslationManager {
 
@@ -26,24 +27,21 @@ class TranslationManager {
 
     /**
      * 初始化翻译器并下载离线模型
-     * 首次需要联网下载，之后可离线使用
      */
     suspend fun init() = withContext(Dispatchers.IO) {
-        // 老挝语 → 中文
+        // ML Kit 不支持老挝语，使用泰语作为替代
         val lao2zhOptions = TranslatorOptions.Builder()
-            .setSourceLanguage(TranslateLanguage.LAO)
+            .setSourceLanguage(TranslateLanguage.THAI)
             .setTargetLanguage(TranslateLanguage.CHINESE)
             .build()
         laoToChinese = Translation.getClient(lao2zhOptions)
 
-        // 中文 → 老挝语
         val zh2laoOptions = TranslatorOptions.Builder()
             .setSourceLanguage(TranslateLanguage.CHINESE)
-            .setTargetLanguage(TranslateLanguage.LAO)
+            .setTargetLanguage(TranslateLanguage.THAI)
             .build()
         chineseToLao = Translation.getClient(zh2laoOptions)
 
-        // 下载语言模型（首次需要，之后离线可用）
         laoToChinese?.downloadModelIfNeeded()?.await()
         chineseToLao?.downloadModelIfNeeded()?.await()
     }
