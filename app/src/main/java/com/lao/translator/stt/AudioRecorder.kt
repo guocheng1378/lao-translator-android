@@ -71,7 +71,7 @@ class AudioRecorder {
         val windowSamples = samplesPerChunk + overlapSamples
 
         audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             SAMPLE_RATE,
             CHANNEL_CONFIG,
             AUDIO_FORMAT,
