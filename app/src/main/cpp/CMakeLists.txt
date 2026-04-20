@@ -23,7 +23,7 @@ target_include_directories(ggml PUBLIC
 add_library(ggml-backend STATIC
     ${WHISPER_DIR}/ggml/src/ggml-backend.cpp
     ${WHISPER_DIR}/ggml/src/ggml-backend-reg.cpp
-    ${WHISPER_DIR}/ggml/src/ggml-cpu/ggml-cpu.c
+    ${WHISPER_DIR}/ggml/src/ggml-cpu/ggml-cpu.cpp
     ${WHISPER_DIR}/ggml/src/ggml-threading.cpp
 )
 
