@@ -97,6 +97,9 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
 
     int ret = whisper_full(g_ctx, params, samples, n_samples);
 
+    env->ReleaseFloatArrayElements(audio_data, samples, 0);
+    env->ReleaseStringUTFChars(language, lang);
+
     std::string result;
     if (ret == 0) {
         result = lang_prefix;
@@ -105,10 +108,9 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
             const char *text = whisper_full_get_segment_text(g_ctx, i);
             if (text) result += text;
         }
+    } else {
+        LOGE("whisper_full failed with code %d (n_samples=%d)", ret, n_samples);
     }
-
-    env->ReleaseFloatArrayElements(audio_data, samples, 0);
-    env->ReleaseStringUTFChars(language, lang);
 
     return env->NewStringUTF(result.c_str());
 }

@@ -6,11 +6,13 @@ set -e
 
 echo "=== 老挝语翻译器 - 环境搭建 ==="
 
-# 1. 下载 whisper.cpp 源码
+# 1. 下载 whisper.cpp 源码（锁定版本，防止模型不兼容）
+WHISPER_COMMIT="v1.7.5"
 CPP_DIR="app/src/main/cpp/whisper"
 if [ ! -f "$CPP_DIR/include/whisper.h" ]; then
-    echo "[1/3] 下载 whisper.cpp 源码..."
-    git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git /tmp/whisper-tmp
+    echo "[1/3] 下载 whisper.cpp 源码 (version: $WHISPER_COMMIT)..."
+    git clone https://github.com/ggerganov/whisper.cpp.git /tmp/whisper-tmp
+    cd /tmp/whisper-tmp && git checkout "$WHISPER_COMMIT" && cd -
     mkdir -p "$CPP_DIR/include" "$CPP_DIR/src" \
              "$CPP_DIR/ggml/include" "$CPP_DIR/ggml/src/ggml-cpu"
 
@@ -27,6 +29,20 @@ if [ ! -f "$CPP_DIR/include/whisper.h" ]; then
 
     # ggml CPU backend
     cp /tmp/whisper-tmp/ggml/src/ggml-cpu/ggml-cpu.c "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/ggml-cpu.cpp "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/quants.c "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/traits.cpp "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/vec.cpp "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/ops.cpp "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/unary-ops.cpp "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/binary-ops.cpp "$CPP_DIR/ggml/src/ggml-cpu/" 2>/dev/null || true
+
+    # ggml CPU arch-specific (arm64)
+    mkdir -p "$CPP_DIR/ggml/src/ggml-cpu/arch/arm"
+    cp /tmp/whisper-tmp/ggml/src/ggml-cpu/arch/arm/quants.c "$CPP_DIR/ggml/src/ggml-cpu/arch/arm/" 2>/dev/null || true
+
+    # ggml backend-reg (CMakeLists 需要)
+    cp /tmp/whisper-tmp/ggml/src/ggml-backend-reg.cpp "$CPP_DIR/ggml/src/" 2>/dev/null || true
 
     # ggml headers
     cp /tmp/whisper-tmp/ggml/include/ggml.h      "$CPP_DIR/ggml/include/"
