@@ -35,13 +35,6 @@ jobs:
           echo "=== whisper files ==="
           find app/src/main/cpp/whisper -name "*.c" -o -name "*.cpp" -o -name "*.h" | wc -l
 
-      - name: Download whisper model
-        run: |
-          mkdir -p app/src/main/assets/models
-          curl -L -o app/src/main/assets/models/ggml-small.bin \
-            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
-          echo "Model size: $(ls -lh app/src/main/assets/models/ggml-small.bin | awk '{print $5}')"
-
       - name: Build APK
         run: |
           chmod +x gradlew
