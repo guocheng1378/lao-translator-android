@@ -1,5 +1,3 @@
-// whisper_jni.cpp
-
 #include <jni.h>
 #include <string>
 #include <mutex>
@@ -50,10 +48,6 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
 
     std::string result;
     if (ret == 0) {
-        int detected_lang_id = whisper_lang_id(whisper_ctx_get_lang(g_ctx));
-        const char *lang_str = whisper_lang_str(detected_lang_id);
-        result = "LANG:" + std::string(lang_str ? lang_str : "unknown") + "\n";
-
         int n_segments = whisper_full_n_segments(g_ctx);
         for (int i = 0; i < n_segments; ++i) {
             const char *text = whisper_full_get_segment_text(g_ctx, i);
