@@ -3,6 +3,7 @@ package com.lao.translator.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,6 +22,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var whisper: WhisperManager
@@ -104,6 +109,7 @@ class MainActivity : AppCompatActivity() {
                 translateJob.await()
                 ttsJob.await()
 
+                Log.d(TAG, "所有模型加载完成, whisper.nativeLoaded=${WhisperManager.nativeLoaded}")
                 whisper.warmup()
 
                 val ttsInfo = mutableListOf<String>()
@@ -195,6 +201,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startRealtimeTranslation() {
+        Log.d(TAG, "startRealtimeTranslation 调用")
         sourceBuffer.clear()
         targetBuffer.clear()
         lastSourceLang = ""
@@ -227,12 +234,16 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun processChunk(audioChunk: FloatArray) {
         binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
+        Log.d(TAG, "processChunk #$chunkCount, audioChunk.size=${audioChunk.size}")
 
         val result = withContext(Dispatchers.Default) {
             whisper.transcribeAuto(audioChunk)
         }
 
+        Log.d(TAG, "transcribeAuto 返回: text='${result.text}', lang='${result.language}', isLao=${result.isLao}")
+
         if (result.text.isBlank()) {
+            Log.w(TAG, "transcribeAuto 返回空文本! chunk #$chunkCount")
             binding.tvStatus.text = "🎙️ 监听中... (有效 #$chunkCount, 跳过静音 #$skipCount)"
             return
         }

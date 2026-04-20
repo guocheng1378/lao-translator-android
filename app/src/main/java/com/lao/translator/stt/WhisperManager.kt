@@ -42,13 +42,42 @@ class WhisperManager(private val context: Context) {
 
     suspend fun init(modelName: String = "ggml-small.bin"): Boolean = withContext(Dispatchers.IO) {
         if (!nativeLoaded) {
+            Log.e(TAG, "nativeLoaded=false, 无法加载 whisper_jni")
             throw IllegalStateException("Native 库加载失败，设备可能不支持此架构")
         }
         val modelFile = File(context.filesDir, "models/$modelName")
+        Log.d(TAG, "模型路径: ${modelFile.absolutePath}, 存在: ${modelFile.exists()}, 大小: ${modelFile.length()} bytes")
+
         if (!modelFile.exists()) {
-            throw IllegalStateException("模型文件不存在: ${modelFile.absolutePath}")
+            // 尝试从 assets 复制
+            val modelDir = File(context.filesDir, "models")
+            modelDir.mkdirs()
+            try {
+                Log.d(TAG, "尝试从 assets 复制模型...")
+                context.assets.open("models/$modelName").use { input ->
+                    java.io.FileOutputStream(modelFile).use { output ->
+                        val buf = ByteArray(65536)
+                        var total = 0L
+                        var read: Int
+                        while (input.read(buf).also { read = it } != -1) {
+                            output.write(buf, 0, read)
+                            total += read
+                        }
+                        Log.d(TAG, "从 assets 复制完成，大小: $total bytes")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "从 assets 复制失败: ${e.message}")
+                throw IllegalStateException("模型文件不存在且从 assets 复制失败: ${e.message}")
+            }
         }
+
+        Log.d(TAG, "开始 nativeInit, 路径: ${modelFile.absolutePath}")
         isInitialized = nativeInit(modelFile.absolutePath)
+        Log.d(TAG, "nativeInit 返回: $isInitialized, 文件大小: ${modelFile.length()} bytes")
+        if (!isInitialized) {
+            Log.e(TAG, "nativeInit 失败！模型可能损坏或格式不正确")
+        }
         isInitialized
     }
 
@@ -63,9 +92,14 @@ class WhisperManager(private val context: Context) {
 
     suspend fun transcribeAuto(samples: FloatArray): TranscribeResult =
         withContext(Dispatchers.Default) {
-            if (!isInitialized) return@withContext TranscribeResult("", "")
+            if (!isInitialized) {
+                Log.w(TAG, "transcribeAuto 调用时 isInitialized=false")
+                return@withContext TranscribeResult("", "")
+            }
 
+            Log.d(TAG, "开始转写, samples.size=${samples.size}, 能量=${calculateEnergy(samples)}")
             val raw = nativeTranscribe(samples, samples.size, "")
+            Log.d(TAG, "nativeTranscribe 返回: '$raw' (长度=${raw.length})")
 
             val lines = raw.split("\n", limit = 2)
             val detectedLang = if (lines.isNotEmpty() && lines[0].startsWith("LANG:")) {
@@ -92,6 +126,12 @@ class WhisperManager(private val context: Context) {
             val lines = raw.split("\n", limit = 2)
             if (lines.size > 1) lines[1].trim() else raw.trim()
         }
+
+    private fun calculateEnergy(samples: FloatArray): Float {
+        var energy = 0f
+        for (s in samples) energy += s * s
+        return energy / samples.size
+    }
 
     fun release() {
         if (isInitialized) {

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +22,7 @@ import kotlin.math.sqrt
 class AudioRecorder {
 
     companion object {
+        private const val TAG = "AudioRecorder"
         const val SAMPLE_RATE = 16000
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
@@ -57,9 +59,11 @@ class AudioRecorder {
 
         val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+            Log.e(TAG, "getMinBufferSize 失败: $bufferSize, SAMPLE_RATE=$SAMPLE_RATE")
             _state.value = RecordState.Error("无法获取录音缓冲区")
             return
         }
+        Log.d(TAG, "bufferSize=$bufferSize")
 
         val samplesPerChunk = SAMPLE_RATE * chunkDurationMs / 1000
         val overlapSamples = SAMPLE_RATE * overlapMs / 1000
@@ -75,10 +79,12 @@ class AudioRecorder {
         )
 
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e(TAG, "AudioRecord 初始化失败! state=${audioRecord?.state}")
             _state.value = RecordState.Error("AudioRecord 初始化失败")
             return
         }
 
+        Log.d(TAG, "AudioRecord 初始化成功, 开始录音")
         audioRecord?.startRecording()
         var chunkCount = 0
         var skippedCount = 0
@@ -113,11 +119,13 @@ class AudioRecorder {
 
                     if (hasVoice || firstChunk) {
                         chunkCount++
+                        Log.d(TAG, "chunk #$chunkCount: 有语音 (hasVoice=$hasVoice, firstChunk=$firstChunk)")
                         _state.value = RecordState.Recording(chunkCount, skippedCount)
                         onChunk(chunk)
                         firstChunk = false
                     } else {
                         skippedCount++
+                        Log.d(TAG, "chunk 跳过: 静音 #$skippedCount")
                         _state.value = RecordState.Recording(chunkCount, skippedCount)
                     }
 
@@ -152,6 +160,7 @@ class AudioRecorder {
 
         // 有声帧占比 > 15% 认为是有效语音
         val voiceRatio = voicedFrames.toFloat() / totalFrames
+        Log.d(TAG, "VAD: voicedFrames=$voicedFrames/$totalFrames, ratio=$voiceRatio, threshold=${1f - SILENCE_RATIO_THRESHOLD}")
         return voiceRatio > (1f - SILENCE_RATIO_THRESHOLD)
     }
 
