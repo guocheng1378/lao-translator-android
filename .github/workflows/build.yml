@@ -25,23 +25,17 @@ jobs:
         run: |
           cd app/src/main/cpp
           git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git whisper-tmp
-          cp whisper-tmp/whisper.cpp whisper/
-          cp whisper-tmp/whisper.h whisper/
-          cp whisper-tmp/ggml.c whisper/
-          cp whisper-tmp/ggml.h whisper/
-          cp whisper-tmp/ggml-alloc.c whisper/
-          cp whisper-tmp/ggml-backend.c whisper/
-          cp whisper-tmp/ggml-backend.h whisper/
-          cp whisper-tmp/ggml-common.h whisper/
-          cp whisper-tmp/ggml-impl.h whisper/
-          cp whisper-tmp/ggml-quants.c whisper/
-          cp whisper-tmp/ggml-quants.h whisper/
+          rm -rf whisper
+          mkdir -p whisper
+          cp whisper-tmp/*.c whisper-tmp/*.h whisper/
+          ls -la whisper/
           rm -rf whisper-tmp
 
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
       - name: Build APK
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
+        run: ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
