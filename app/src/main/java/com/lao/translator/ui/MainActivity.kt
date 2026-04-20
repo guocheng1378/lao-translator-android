@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         whisper = WhisperManager(this)
-        translator = TranslationManager()
+        translator = TranslationManager(this)
         tts = TtsManager(this)
         recorder = AudioRecorder()
 
@@ -132,7 +132,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { translator.init() }
-                Log.d(TAG, "翻译模型加载完成")
+                Log.d(TAG, "翻译模型加载完成, 模式=${translator.getCurrentMode()}")
                 // 翻译就绪后更新状态（仅当 Whisper 也已就绪）
                 if (whisperReady) {
                     binding.tvStatus.text = "✅ 全部就绪，点击麦克风开始"
@@ -325,7 +325,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        binding.tvStatus.text = "✅ 已翻译 (有效 #$chunkCount)"
+        binding.tvStatus.text = "✅ 已翻译 (有效 #$chunkCount) [${if (translator.getCurrentMode() == TranslationManager.TranslateMode.MYMEMORY_LAO) "在线·老挝语" else "离线·泰语"}]"
     }
 
     private fun stopRecording() {
