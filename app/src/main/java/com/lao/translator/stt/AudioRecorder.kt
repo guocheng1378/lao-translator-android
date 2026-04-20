@@ -117,7 +117,9 @@ class AudioRecorder {
                     // VAD: 检查是否有语音
                     val hasVoice = detectVoice(chunk)
 
-                    if (hasVoice || firstChunk) {
+                    val energy = calculateEnergy(chunk)
+
+                    if (hasVoice || (firstChunk && energy > 0.003f)) {
                         chunkCount++
                         Log.d(TAG, "chunk #$chunkCount: 有语音 (hasVoice=$hasVoice, firstChunk=$firstChunk)")
                         _state.value = RecordState.Recording(chunkCount, skippedCount)
@@ -174,4 +176,11 @@ class AudioRecorder {
     }
 
     fun isRecording(): Boolean = recordingJob?.isActive == true
+
+    private fun calculateEnergy(samples: FloatArray): Float {
+        var energy = 0f
+        for (s in samples) energy += s * s
+        return energy / samples.size
+    }
+
 }

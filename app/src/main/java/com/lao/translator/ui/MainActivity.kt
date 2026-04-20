@@ -267,8 +267,16 @@ class MainActivity : AppCompatActivity() {
         binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
         Log.d(TAG, "processChunk #$chunkCount, audioChunk.size=${audioChunk.size}")
 
-        val result = withContext(Dispatchers.Default) {
-            whisper.transcribeAuto(audioChunk)
+        val result = try {
+            withTimeout(15_000) {
+                withContext(Dispatchers.Default) {
+                    whisper.transcribeAuto(audioChunk)
+                }
+            }
+        } catch (e: TimeoutCancellationException) {
+            Log.e(TAG, "Whisper 转写超时 (15s)，跳过此 chunk")
+            binding.tvStatus.text = "🎙️ 监听中... (转写超时，已跳过)"
+            return
         }
 
         Log.d(TAG, "transcribeAuto 返回: text='${result.text}', lang='${result.language}', isLao=${result.isLao}")
