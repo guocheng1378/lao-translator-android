@@ -2,9 +2,24 @@
 #include <string>
 #include <mutex>
 #include "whisper.h"
+#include "ggml-backend.h"
 
 static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
+static bool g_backend_ready = false;
+
+// Ensure CPU backend is registered before whisper_init_from_file
+// whisper_init_from_file calls ggml_backend_dev_backend_reg which requires
+// the CPU backend to be in the registry. ggml_backend_init_by_type triggers
+// implicit registration as a side effect.
+static void ensure_backend() {
+    if (g_backend_ready) return;
+    ggml_backend_t backend = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+    if (backend) {
+        ggml_backend_free(backend);
+    }
+    g_backend_ready = true;
+}
 
 extern "C" {
 
@@ -13,6 +28,7 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
         JNIEnv *env, jobject thiz, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     std::lock_guard<std::mutex> lock(g_mutex);
+    ensure_backend();
     if (g_ctx) whisper_free(g_ctx);
     g_ctx = whisper_init_from_file(path);
     env->ReleaseStringUTFChars(model_path, path);
