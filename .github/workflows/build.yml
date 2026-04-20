@@ -18,21 +18,26 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK & Accept licenses
         uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
+        with:
+          accept-android-sdk-licenses: 'true'
 
       - name: Download whisper.cpp source
         run: |
-          cd app/src/main/cpp
-          rm -rf whisper
-          git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git whisper
-          cd whisper
-          rm -rf examples tests bindings ci scripts models samples grammars build-xcframework.sh
+          git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git /tmp/whisper-src
+          rm -rf app/src/main/cpp/whisper
+          mkdir -p app/src/main/cpp/whisper
+          cp -r /tmp/whisper-src/ggml app/src/main/cpp/whisper/
+          cp -r /tmp/whisper-src/src app/src/main/cpp/whisper/
+          cp -r /tmp/whisper-src/include app/src/main/cpp/whisper/
+          rm -rf /tmp/whisper-src
+          # 清理不需要的后端
+          cd app/src/main/cpp/whisper
           rm -rf ggml/src/ggml-cuda ggml/src/ggml-hip ggml/src/ggml-vulkan ggml/src/ggml-metal ggml/src/ggml-sycl ggml/src/ggml-opencl ggml/src/ggml-cann ggml/src/ggml-hexagon ggml/src/ggml-musa ggml/src/ggml-openvino ggml/src/ggml-rpc ggml/src/ggml-virtgpu ggml/src/ggml-webgpu ggml/src/ggml-zdnn ggml/src/ggml-zendnn ggml/src/ggml-blas ggml/src/ggml-opt.cpp
           rm -rf src/coreml src/openvino
+          echo "=== whisper files ==="
+          find . -name "*.c" -o -name "*.cpp" -o -name "*.h" | wc -l
 
       - name: Build APK
         run: |
