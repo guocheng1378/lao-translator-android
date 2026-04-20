@@ -24,6 +24,8 @@ add_library(ggml-all STATIC
     ${WHISPER_DIR}/ggml/src/ggml-cpu/ops.cpp
     ${WHISPER_DIR}/ggml/src/ggml-cpu/unary-ops.cpp
     ${WHISPER_DIR}/ggml/src/ggml-cpu/binary-ops.cpp
+    # arm64 NEON 优化的量化函数 (ggml_vec_dot_*, quantize_row_*)
+    ${WHISPER_DIR}/ggml/src/ggml-cpu/arch/arm/quants.c
 )
 
 target_compile_definitions(ggml-all PRIVATE GGML_USE_CPU)
