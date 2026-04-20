@@ -5,26 +5,17 @@ set(CMAKE_CXX_STANDARD 17)
 
 set(WHISPER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/whisper)
 
-# ggml sources
-add_library(ggml STATIC
+# ggml + ggml-backend 合并为一个静态库，避免静态库交叉引用导致 undefined symbol
+add_library(ggml-all STATIC
+    # ggml core
     ${WHISPER_DIR}/ggml/src/ggml.c
     ${WHISPER_DIR}/ggml/src/ggml-alloc.c
     ${WHISPER_DIR}/ggml/src/ggml-quants.c
-)
-
-target_include_directories(ggml PUBLIC
-    ${WHISPER_DIR}/ggml/include
-    ${WHISPER_DIR}/ggml/src
-)
-
-# ggml backend (CPU only)
-# 注意：whisper.cpp v1.7.6 的 ggml-cpu 后端需要编译多个源文件
-# ggml-cpu.cpp 包含 ggml_backend_cpu_reg (后端注册入口)
-# 其他 .cpp 文件是 ggml-cpu.cpp 的依赖
-add_library(ggml-backend STATIC
+    # ggml backend
     ${WHISPER_DIR}/ggml/src/ggml-backend.cpp
     ${WHISPER_DIR}/ggml/src/ggml-backend-reg.cpp
     ${WHISPER_DIR}/ggml/src/ggml-threading.cpp
+    # ggml-cpu backend (whisper.cpp v1.7.6 需要编译全部子模块)
     ${WHISPER_DIR}/ggml/src/ggml-cpu/ggml-cpu.c
     ${WHISPER_DIR}/ggml/src/ggml-cpu/ggml-cpu.cpp
     ${WHISPER_DIR}/ggml/src/ggml-cpu/quants.c
@@ -35,16 +26,13 @@ add_library(ggml-backend STATIC
     ${WHISPER_DIR}/ggml/src/ggml-cpu/binary-ops.cpp
 )
 
-# 关键：定义 GGML_USE_CPU 使 ggml-backend-reg.cpp 编译入 CPU 后端注册代码
-target_compile_definitions(ggml-backend PRIVATE GGML_USE_CPU)
+target_compile_definitions(ggml-all PRIVATE GGML_USE_CPU)
 
-target_include_directories(ggml-backend PUBLIC
+target_include_directories(ggml-all PUBLIC
     ${WHISPER_DIR}/ggml/include
     ${WHISPER_DIR}/ggml/src
     ${WHISPER_DIR}/ggml/src/ggml-cpu
 )
-
-target_link_libraries(ggml-backend ggml)
 
 # whisper
 add_library(whisper STATIC
@@ -56,7 +44,7 @@ target_include_directories(whisper PUBLIC
     ${WHISPER_DIR}/ggml/include
     ${WHISPER_DIR}/ggml/src
 )
-target_link_libraries(whisper ggml ggml-backend)
+target_link_libraries(whisper ggml-all)
 
 # JNI bridge
 add_library(whisper_jni SHARED whisper_jni.cpp)
@@ -68,8 +56,7 @@ target_include_directories(whisper_jni PRIVATE
 
 target_link_libraries(whisper_jni
     whisper
-    ggml
-    ggml-backend
+    ggml-all
     log
     android
 )
