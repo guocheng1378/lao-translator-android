@@ -183,7 +183,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         try {
-            val url = URL("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin")
+            val url = URL("https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-base.bin")
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 30000
             conn.readTimeout = 60000
