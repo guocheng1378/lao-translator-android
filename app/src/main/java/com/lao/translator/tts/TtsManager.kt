@@ -36,6 +36,9 @@ class TtsManager(private val context: Context) {
                     val engine = tts?.defaultEngine ?: ""
                     android.util.Log.d("TtsManager", "TTS engine: $engine")
 
+                    // 等引擎真正就绪再操作，避免 "not bound to TTS engine"
+                    try { Thread.sleep(200) } catch (_: InterruptedException) {}
+
                     // 检测中文支持
                     zhSupported = tts?.setLanguage(Locale.CHINESE)?.let {
                         it != TextToSpeech.LANG_MISSING_DATA && it != TextToSpeech.LANG_NOT_SUPPORTED
@@ -61,8 +64,10 @@ class TtsManager(private val context: Context) {
 
                     isReady = true
                     android.util.Log.d("TtsManager", "中文=$zhSupported, 老挝语=$laoSupported")
+                } else {
+                    android.util.Log.w("TtsManager", "TTS 初始化失败: status=$status")
                 }
-                cont.resume(Unit)
+                if (cont.isActive) cont.resume(Unit)
             }
         }
     }
@@ -73,7 +78,7 @@ class TtsManager(private val context: Context) {
      * @param language "zh" 或 "lo"
      */
     fun speak(text: String, language: String) {
-        if (!isReady || text.isBlank()) return
+        if (!isReady || text.isBlank() || tts == null) return
 
         val locale = when (language) {
             "lo" -> {
@@ -156,9 +161,9 @@ class TtsManager(private val context: Context) {
      * 释放资源
      */
     fun release() {
-        tts?.stop()
-        tts?.shutdown()
-        tts = null
         isReady = false
+        try { tts?.stop() } catch (_: Exception) {}
+        try { tts?.shutdown() } catch (_: Exception) {}
+        tts = null
     }
 }
