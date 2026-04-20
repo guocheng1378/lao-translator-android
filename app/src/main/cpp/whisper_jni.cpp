@@ -4,6 +4,7 @@
 #include <android/log.h>
 #include "whisper.h"
 #include "ggml-backend.h"
+#include "ggml-cpu.h"
 
 #define LOG_TAG "WhisperJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -13,15 +14,21 @@ static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
 static bool g_backend_registered = false;
 
-// Manually register CPU backend (bypasses ggml-backend-reg.cpp which crashes on Android)
+// Pre-register CPU backend before whisper_init_from_file to avoid SIGSEGV
+// in ggml_backend_dev_backend_reg() during automatic backend discovery on Android
 static void ensure_cpu_backend() {
     if (g_backend_registered) return;
-    LOGI("Registering GGML CPU backend manually...");
-    ggml_backend_device_t dev = ggml_backend_reg_dev_get(ggml_backend_cpu_reg(), 0);
-    if (dev) {
-        LOGI("CPU backend device registered: %s", ggml_backend_dev_name(dev));
+    LOGI("Pre-registering GGML CPU backend...");
+    ggml_backend_reg_t cpu_reg = ggml_backend_cpu_reg();
+    if (cpu_reg) {
+        ggml_backend_dev_t dev = ggml_backend_reg_dev_get(cpu_reg, 0);
+        if (dev) {
+            LOGI("CPU backend device ready: %s", ggml_backend_dev_name(dev));
+        } else {
+            LOGE("Failed to get CPU backend device!");
+        }
     } else {
-        LOGE("Failed to get CPU backend device!");
+        LOGE("Failed to get CPU backend reg!");
     }
     g_backend_registered = true;
 }
