@@ -3,6 +3,7 @@ package com.lao.translator.translate
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -115,7 +116,7 @@ class TranslationManager {
             }
 
             // 响应格式: [[["翻译结果","原文",null,null,N],...],null,"zh-CN"]
-            val json = JSONObject(body)
+            val json = JSONArray(body)
             val sentences = json.getJSONArray(0)
             val sb = StringBuilder()
             for (i in 0 until sentences.length()) {
