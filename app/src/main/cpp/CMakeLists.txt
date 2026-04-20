@@ -56,9 +56,12 @@ target_include_directories(whisper_jni PRIVATE
     ${WHISPER_DIR}/ggml/include
 )
 
+# 使用 --whole-archive 强制链接 ggml-all 的所有目标文件
+# 否则 ggml-backend-reg.cpp 中的 GGML_REGISTER_BACKEND static initializer 会被链接器丢弃
+# 导致 CPU backend 未注册，whisper_init 崩溃
 target_link_libraries(whisper_jni
     whisper
-    ggml-all
+    -Wl,--whole-archive ggml-all -Wl,--no-whole-archive
     log
     android
 )
