@@ -89,6 +89,34 @@ class MainActivity : AppCompatActivity() {
             if (recorder.isRecording()) stopRecording()
             else checkPermissionAndStart()
         }
+
+        // 文字翻译测试按钮
+        binding.btnTextTranslate.setOnClickListener {
+            val input = binding.etTextInput.text.toString().trim()
+            if (input.isBlank()) return@setOnClickListener
+
+            binding.tvSourceText.text = input
+            binding.tvStatus.text = "🔄 正在翻译..."
+
+            lifecycleScope.launch {
+                try {
+                    val dir = TranslationManager.TranslateDirection.ChineseToLao
+                    val translated = withContext(Dispatchers.IO) {
+                        translator.translate(input, dir)
+                    }
+                    if (!translated.isNullOrBlank()) {
+                        binding.tvTargetText.text = translated
+                        binding.tvStatus.text = "✅ 翻译成功 [${translator.getCurrentMode()}]"
+                        binding.tvDetectedLang.text = "🌐 中文 → 老挝语"
+                    } else {
+                        binding.tvStatus.text = "⚠️ 翻译返回空! 模式=${translator.getCurrentMode()}"
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "文字翻译失败", e)
+                    binding.tvStatus.text = "❌ 翻译失败: ${e.message}"
+                }
+            }
+        }
     }
 
     private fun initModels() {
