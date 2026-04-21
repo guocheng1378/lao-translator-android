@@ -7,7 +7,6 @@ import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlin.math.sqrt
 
 /**
  * ✅ 改版：环形缓冲区 + VAD 语音端点检测
