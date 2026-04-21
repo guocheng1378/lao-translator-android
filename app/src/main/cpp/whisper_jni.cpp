@@ -2,6 +2,8 @@
 #include <string>
 #include <mutex>
 #include <thread>
+#include <chrono>
+#include <atomic>
 #include <android/log.h>
 #include "whisper.h"
 #include "ggml-backend.h"
@@ -13,6 +15,8 @@
 
 static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
+static std::atomic<bool> g_init_done{false};
+static std::atomic<bool> g_init_timeout{false};
 
 extern "C" {
 
@@ -32,21 +36,49 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
     std::lock_guard<std::mutex> lock(g_mutex);
 
     if (g_ctx) {
-        LOGW("nativeInit: releasing previous context");
         whisper_free(g_ctx);
         g_ctx = nullptr;
     }
 
     LOGI("nativeInit: loading model from %s", path);
-    g_ctx = whisper_init_from_file(path);
 
-    if (g_ctx) {
-        LOGI("nativeInit: OK, n_mels=%d", whisper_model_n_mels(g_ctx));
-    } else {
-        LOGE("nativeInit: FAILED for: %s", path);
-    }
+    // 启动看门狗线程：30秒超时
+    g_init_done = false;
+    g_init_timeout = false;
+    std::thread watchdog([&]() {
+        for (int i = 0; i < 30; i++) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (g_init_done) return;
+        }
+        g_init_timeout = true;
+        LOGE("nativeInit: 看门狗超时 (30s)，模型加载卡死");
+    });
+    watchdog.detach();
+
+    auto t0 = std::chrono::steady_clock::now();
+    g_ctx = whisper_init_from_file(path);
+    g_init_done = true;
+
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
 
     env->ReleaseStringUTFChars(model_path, path);
+
+    if (g_init_timeout) {
+        LOGE("nativeInit: 超时 (%ldms)，释放资源", (long)elapsed);
+        if (g_ctx) {
+            whisper_free(g_ctx);
+            g_ctx = nullptr;
+        }
+        return JNI_FALSE;
+    }
+
+    if (g_ctx) {
+        LOGI("nativeInit: OK (%ldms), n_mels=%d", (long)elapsed, whisper_model_n_mels(g_ctx));
+    } else {
+        LOGE("nativeInit: FAILED (%ldms)", (long)elapsed);
+    }
+
     return g_ctx != nullptr;
 }
 
@@ -62,23 +94,18 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     }
 
     if (audio_data == nullptr || n_samples <= 0) {
-        LOGE("nativeTranscribe: invalid audio data (array=%p, samples=%d)", audio_data, n_samples);
         return env->NewStringUTF("");
     }
 
     float *samples = env->GetFloatArrayElements(audio_data, nullptr);
     if (samples == nullptr) {
-        LOGE("nativeTranscribe: GetFloatArrayElements returned null");
         return env->NewStringUTF("");
     }
 
     const char *lang = env->GetStringUTFChars(language, nullptr);
-    bool auto_detect = (lang == nullptr || lang[0] == '\0');
 
     unsigned int n_cores = std::thread::hardware_concurrency();
     int n_threads = (n_cores > 0) ? std::min((int)n_cores, 4) : 2;
-    LOGI("nativeTranscribe: samples=%d, threads=%d (cores=%u), auto=%d",
-         n_samples, n_threads, n_cores, auto_detect);
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
@@ -94,18 +121,20 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     params.greedy.best_of = 1;
     params.token_timestamps = false;
 
-    LOGI("whisper_full: starting transcription...");
+    auto t0 = std::chrono::steady_clock::now();
     int ret = whisper_full(g_ctx, params, samples, n_samples);
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
 
     env->ReleaseFloatArrayElements(audio_data, samples, 0);
     if (lang) env->ReleaseStringUTFChars(language, lang);
 
     if (ret != 0) {
-        LOGE("whisper_full failed: ret=%d (samples=%d)", ret, n_samples);
+        LOGE("whisper_full failed: ret=%d (%ldms)", ret, (long)elapsed);
         return env->NewStringUTF("");
     }
 
-    LOGI("whisper_full done: ret=0");
+    LOGI("whisper_full done (%ldms)", (long)elapsed);
 
     std::string result;
     int lang_id = whisper_full_lang_id(g_ctx);
@@ -113,13 +142,9 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     result = "LANG:" + std::string(detected ? detected : "unknown") + "\n";
 
     int n_segments = whisper_full_n_segments(g_ctx);
-    LOGI("whisper_full: %d segments", n_segments);
     for (int i = 0; i < n_segments; ++i) {
         const char *text = whisper_full_get_segment_text(g_ctx, i);
-        if (text) {
-            result += text;
-            LOGI("  segment[%d]: '%s'", i, text);
-        }
+        if (text) result += text;
     }
 
     return env->NewStringUTF(result.c_str());
@@ -129,7 +154,7 @@ JNIEXPORT void JNICALL
 Java_com_lao_translator_stt_WhisperManager_nativeRelease(JNIEnv *env, jobject thiz) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_ctx) {
-        LOGI("nativeRelease: freeing context");
+        LOGI("nativeRelease");
         whisper_free(g_ctx);
         g_ctx = nullptr;
     }
