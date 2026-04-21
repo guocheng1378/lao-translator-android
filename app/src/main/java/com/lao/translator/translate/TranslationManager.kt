@@ -93,13 +93,9 @@ class TranslationManager(private val context: Context) {
     private suspend fun initMlKit() = withContext(Dispatchers.IO) {
         Log.d(TAG, "初始化 ML Kit 翻译器...")
 
-        val loLang = TranslateLanguage.LAO
+        // 直接用语言代码字符串（避免 SDK 版本常量不包含 Lao 的问题）
+        val loLang = "lo"
         val zhLang = TranslateLanguage.CHINESE
-
-        if (loLang == null || zhLang == null) {
-            Log.e(TAG, "ML Kit 不支持老挝语或中文")
-            return@withContext
-        }
 
         // 创建翻译器
         val loToZhOptions = TranslatorOptions.Builder()
