@@ -413,10 +413,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun processChunk(audioChunk: FloatArray) {
-        Log.d(TAG, "🔄 processChunk #$chunkCount, audioChunk.size=${audioChunk.size}")
-        fileLog("🔄 processChunk #$chunkCount, size=${audioChunk.size}")
+        // 计算能量
+        var energy = 0f
+        for (s in audioChunk) energy += s * s
+        energy /= audioChunk.size
+        Log.d(TAG, "🔄 processChunk #$chunkCount, size=${audioChunk.size}, energy=$energy")
+        fileLog("🔄 processChunk #$chunkCount, size=${audioChunk.size}, energy=$energy")
+
+        // 如果能量太低，说明麦克风没声音
+        if (energy < 0.00001f) {
+            Log.w(TAG, "⚠️ 音频能量极低 ($energy)，麦克风可能没工作")
+            fileLog("⚠️ 音频能量极低 energy=$energy")
+            withContext(Dispatchers.Main) {
+                binding.tvStatus.text = "⚠️ 麦克风无声 (能量=$energy) #$chunkCount"
+            }
+            return
+        }
+
         withContext(Dispatchers.Main) {
-            binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
+            binding.tvStatus.text = "🔄 识别中... #$chunkCount (能量=${String.format("%.6f", energy)})"
         }
 
         // ====== Whisper 转写 ======
