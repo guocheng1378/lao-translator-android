@@ -122,7 +122,7 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 try {
                     // ✅ FIX: 自动检测语言方向（老挝语包含 ກ-ໜ Unicode 范围）
-                    val hasLaoChars = input.any { it in '\u0E80'..'\u0EFF' }
+                    val hasLaoChars = input.any { it in '຀'..'໿' }
                     val dir = if (hasLaoChars) {
                         TranslationManager.TranslateDirection.LaoToChinese
                     } else {

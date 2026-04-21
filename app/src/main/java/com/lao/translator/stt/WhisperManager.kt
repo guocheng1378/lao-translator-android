@@ -83,9 +83,11 @@ class WhisperManager(private val context: Context) {
         Log.d(TAG, "内存状态: 可用=${rt.freeMemory() / 1024 / 1024}MB, 最大=${rt.maxMemory() / 1024 / 1024}MB")
         Log.d(TAG, "开始 nativeInit, 路径: ${modelFile.absolutePath}")
 
+        Log.d(TAG, ">>> 即将调用 nativeInit, 文件=${modelFile.absolutePath}, 大小=${fileSize}bytes")
         val t0 = System.currentTimeMillis()
         _initialized = nativeInit(modelFile.absolutePath)
         val elapsed = System.currentTimeMillis() - t0
+        Log.d(TAG, "<<< nativeInit 返回, elapsed=${elapsed}ms, _initialized=$_initialized")
 
         Log.d(TAG, "nativeInit 返回: $_initialized, 耗时=${elapsed}ms, 文件大小=${fileSize} bytes")
         if (!_initialized) {

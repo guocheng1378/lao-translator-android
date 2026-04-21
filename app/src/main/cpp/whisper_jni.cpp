@@ -17,6 +17,7 @@ static struct whisper_context *g_ctx = nullptr;
 static std::mutex g_mutex;
 static std::atomic<bool> g_init_done{false};
 static std::atomic<bool> g_init_timeout{false};
+static std::atomic<bool> g_ctx_valid{false};
 
 extern "C" {
 
@@ -39,19 +40,20 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
         whisper_free(g_ctx);
         g_ctx = nullptr;
     }
+    g_ctx_valid = false;
 
     LOGI("nativeInit: loading model from %s", path);
 
-    // 启动看门狗线程：30秒超时
+    // ✅ FIX: 看门狗改为 20s，和 Kotlin 侧配合更紧凑
     g_init_done = false;
     g_init_timeout = false;
     std::thread watchdog([&]() {
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 20; i++) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             if (g_init_done) return;
         }
         g_init_timeout = true;
-        LOGE("nativeInit: 看门狗超时 (30s)，模型加载卡死");
+        LOGE("nativeInit: 看门狗超时 (20s)，模型加载卡死");
     });
     watchdog.detach();
 
@@ -74,7 +76,10 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
     }
 
     if (g_ctx) {
-        LOGI("nativeInit: OK (%ldms), n_mels=%d", (long)elapsed, whisper_model_n_mels(g_ctx));
+        // ✅ FIX: 验证模型可用性
+        int n_mels = whisper_model_n_mels(g_ctx);
+        LOGI("nativeInit: OK (%ldms), n_mels=%d", (long)elapsed, n_mels);
+        g_ctx_valid = true;
     } else {
         LOGE("nativeInit: FAILED (%ldms)", (long)elapsed);
     }
@@ -88,8 +93,8 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
         jfloatArray audio_data, jint n_samples,
         jstring language) {
 
-    if (!g_ctx) {
-        LOGE("nativeTranscribe: context is null");
+    if (!g_ctx || !g_ctx_valid) {
+        LOGE("nativeTranscribe: context is null or invalid");
         return env->NewStringUTF("");
     }
 
@@ -157,6 +162,7 @@ Java_com_lao_translator_stt_WhisperManager_nativeRelease(JNIEnv *env, jobject th
         LOGI("nativeRelease");
         whisper_free(g_ctx);
         g_ctx = nullptr;
+        g_ctx_valid = false;
     }
 }
 
