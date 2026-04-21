@@ -124,23 +124,41 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initModels() {
+        val availMem = Runtime.getRuntime().freeMemory() / 1024 / 1024
+        val maxMem = Runtime.getRuntime().maxMemory() / 1024 / 1024
         binding.tvStatus.text = "⚡ 正在加载语音模型..."
-        Log.d(TAG, "initModels 开始, nativeLoaded=${WhisperManager.nativeLoaded}, " +
-                "可用内存=${Runtime.getRuntime().freeMemory() / 1024 / 1024}MB, " +
-                "最大内存=${Runtime.getRuntime().maxMemory() / 1024 / 1024}MB")
+        Log.d(TAG, "initModels nativeLoaded=${WhisperManager.nativeLoaded} mem=${availMem}/${maxMem}MB")
+
+        // 如果 native 库没加载成功，直接报错
+        if (!WhisperManager.nativeLoaded) {
+            binding.tvStatus.text = "❌ 语音库加载失败，设备不支持 arm64-v8a"
+            Log.e(TAG, "whisper_jni 未加载！")
+            return
+        }
 
         // Whisper 必须先加载完才能用
         lifecycleScope.launch {
             try {
-                withTimeout(120_000) {
+                withTimeout(60_000) {
                     withContext(Dispatchers.IO) {
                         ensureModelExists("ggml-base.bin")
+
+                        // ✅ FIX: 下载完成后提示正在初始化
+                        withContext(Dispatchers.Main) {
+                            binding.tvStatus.text = "⚡ 模型已下载，正在加载到内存..."
+                        }
                         Log.d(TAG, "模型文件就绪, 开始 nativeInit")
+
                         val t0 = System.currentTimeMillis()
                         whisper.init("ggml-base.bin")
-                        Log.d(TAG, "nativeInit 完成, 耗时=${System.currentTimeMillis() - t0}ms")
+                        val elapsed = System.currentTimeMillis() - t0
+                        Log.d(TAG, "nativeInit 完成, 耗时=${elapsed}ms")
+
+                        if (!whisper.isInitialized()) {
+                            throw IllegalStateException("nativeInit 返回 false（${elapsed}ms）")
+                        }
                     }
-                    // 尝试 warmup（如果失败不影响使用）
+                    // warmup 可选，失败不影响
                     try { whisper.warmup() } catch (_: Exception) {}
                     whisperReady = true
                     modelsReady = true
@@ -148,15 +166,13 @@ class MainActivity : AppCompatActivity() {
                     Log.d(TAG, "✅ Whisper 加载完成")
                 }
             } catch (e: TimeoutCancellationException) {
-                binding.tvStatus.text = "❌ 语音模型加载超时，请重启应用"
+                binding.tvStatus.text = "❌ 语音模型加载超时(60s)，请重启重试"
                 Log.e(TAG, "Whisper 加载超时", e)
                 modelsReady = false
-                return@launch
             } catch (e: Exception) {
-                binding.tvStatus.text = "❌ 语音模型加载失败: ${e.message}"
+                binding.tvStatus.text = "❌ 语音模型加载失败: ${e.message?.take(50)}"
                 Log.e(TAG, "Whisper 加载失败", e)
                 modelsReady = false
-                return@launch
             }
         }
 
