@@ -21,6 +21,9 @@ jobs:
       - name: Accept licenses
         run: yes | sdkmanager --licenses
 
+      - name: Setup whisper.cpp source
+        run: bash setup.sh 2>&1 | head -20
+
       - name: Build APK
         run: chmod +x gradlew && ./gradlew assembleDebug
 
