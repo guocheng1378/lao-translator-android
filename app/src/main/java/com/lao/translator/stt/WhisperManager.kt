@@ -33,10 +33,9 @@ class WhisperManager(private val context: Context) {
         val isChinese: Boolean = language == "zh"
     )
 
-    // ✅ FIX: 重命名避免和函数名冲突
     private var _initialized = false
     private var warmedUp = false
-    private var lastDetectedLang = "zh"  // ✅ FIX: 记住上次检测到的语言，作为兜底
+    private var lastDetectedLang = "zh"
 
     private external fun nativeInit(modelPath: String): Boolean
     private external fun nativeTranscribe(audioData: FloatArray, nSamples: Int, language: String): String
@@ -112,6 +111,10 @@ class WhisperManager(private val context: Context) {
         }
     }
 
+    /**
+     * ✅ 改版：现在接收的是一整段语音（2-10秒），不再是 2.5s 固定切片
+     * Whisper 对较长的连续语音识别效果更好
+     */
     suspend fun transcribeAuto(samples: FloatArray): TranscribeResult =
         withContext(Dispatchers.Default) {
             if (!_initialized) {
@@ -120,7 +123,8 @@ class WhisperManager(private val context: Context) {
             }
 
             val energy = calculateEnergy(samples)
-            Log.d(TAG, "开始转写, samples.size=${samples.size}, 能量=$energy")
+            val durationMs = samples.size * 1000L / SAMPLE_RATE
+            Log.d(TAG, "开始转写, samples.size=${samples.size} (${durationMs}ms), 能量=$energy")
             val t0 = System.currentTimeMillis()
 
             val raw = try {
@@ -141,7 +145,7 @@ class WhisperManager(private val context: Context) {
             }
             val text = if (lines.size > 1) lines[1].trim() else raw.trim()
 
-            // ✅ FIX: 语言检测兜底 — 空字符串时用上次检测到的语言
+            // 语言检测兜底
             val langCode = when {
                 detectedLang.startsWith("lao") -> "lo"
                 detectedLang.startsWith("chinese") || detectedLang == "zh" -> "zh"
@@ -153,7 +157,6 @@ class WhisperManager(private val context: Context) {
                 }
             }
 
-            // ✅ FIX: 只有非空结果才更新 lastDetectedLang
             if (text.isNotBlank()) {
                 lastDetectedLang = langCode
             }
@@ -176,7 +179,6 @@ class WhisperManager(private val context: Context) {
         return energy / samples.size
     }
 
-    // ✅ FIX: 统一用 _initialized 字段
     fun isInitialized(): Boolean = _initialized
 
     fun release() {

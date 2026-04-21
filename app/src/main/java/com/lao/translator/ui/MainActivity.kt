@@ -25,13 +25,18 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val WHISPER_TIMEOUT_MS = 25_000L
-        private const val MAX_PROCESSING_SECONDS = 30
+
+        // ✅ 改动：超时从 25s 增大到 120s（现在是整段语音，低端机可能需要更久）
+        private const val WHISPER_TIMEOUT_MS = 120_000L
+
+        // 安全超时：单段语音处理的硬上限
+        private const val MAX_PROCESSING_SECONDS = 150
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -43,15 +48,15 @@ class MainActivity : AppCompatActivity() {
     private val sourceBuffer = StringBuilder()
     private val targetBuffer = StringBuilder()
     private var lastSourceLang = ""
-    private var chunkCount = 0
-    private var skipCount = 0
+    private var segmentCount = 0
     private var autoSpeak = true
-    @Volatile private var isProcessing = false
+
+    // ✅ 改动：用 AtomicBoolean 防止竞态
+    private val isProcessing = AtomicBoolean(false)
     @Volatile private var processingStartTime = 0L
     private var modelsReady = false
     private var whisperReady = false
 
-    // ✅ 文件日志 — 绕过 logcat 过滤问题
     private lateinit var logFile: File
     private val logTimeFmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
@@ -74,7 +79,6 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 初始化文件日志
         logFile = File(filesDir, "app_debug.log")
         fileLog("=== App 启动 ===")
 
@@ -125,7 +129,6 @@ class MainActivity : AppCompatActivity() {
             else checkPermissionAndStart()
         }
 
-        // 长按状态文字查看日志
         binding.tvStatus.setOnLongClickListener {
             showLog()
             true
@@ -171,7 +174,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ✅ 显示最近日志
     private fun showLog() {
         lifecycleScope.launch {
             try {
@@ -249,7 +251,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 翻译服务初始化
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { translator.init() }
@@ -354,19 +355,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * ✅ 改版：不再传固定切片参数，录音器自己用 VAD 检测语音段
+     */
     private fun startRealtimeTranslation() {
         if (!modelsReady) {
             Toast.makeText(this, "语音模型尚未加载完成，请稍候", Toast.LENGTH_SHORT).show()
             return
         }
         Log.d(TAG, "🎙️ startRealtimeTranslation")
-        fileLog("🎙️ 开始录音翻译")
+        fileLog("🎙️ 开始录音翻译 (VAD 模式)")
         sourceBuffer.clear()
         targetBuffer.clear()
         lastSourceLang = ""
-        chunkCount = 0
-        skipCount = 0
-        isProcessing = false
+        segmentCount = 0
+        isProcessing.set(false)
         processingStartTime = 0L
 
         binding.tvSourceText.text = ""
@@ -378,72 +381,86 @@ class MainActivity : AppCompatActivity() {
 
         TranslationService.start(this)
 
-        recorder.startRecording(chunkDurationMs = 2000, overlapMs = 500) { audioChunk ->
+        // ✅ 改动：回调接收的是一整段语音（2-10秒），不是 2.5s 固定切片
+        recorder.startRecording { utterance ->
             val now = System.currentTimeMillis()
-            if (isProcessing) {
+
+            // 安全检查：如果处理卡死超过阈值，强制重置
+            if (isProcessing.get()) {
                 if (processingStartTime > 0 && (now - processingStartTime) > MAX_PROCESSING_SECONDS * 1000) {
                     Log.w(TAG, "⚠️ isProcessing 卡死超过 ${MAX_PROCESSING_SECONDS}s，强制重置！")
                     fileLog("⚠️ isProcessing 卡死，强制重置")
-                    isProcessing = false
+                    isProcessing.set(false)
                 } else {
+                    // 正在处理中，丢弃这段语音（避免积压）
+                    Log.d(TAG, "⏳ 上一段还在处理中，跳过当前语音段 (${utterance.size} samples)")
                     return@startRecording
                 }
             }
 
-            chunkCount++
-            Log.d(TAG, "📥 收到 chunk #$chunkCount (size=${audioChunk.size})")
+            segmentCount++
+            val durationMs = utterance.size * 1000L / WhisperManager.SAMPLE_RATE
+            Log.d(TAG, "📥 收到语音段 #$segmentCount (${utterance.size} samples, ${durationMs}ms)")
 
             lifecycleScope.launch {
-                isProcessing = true
+                isProcessing.set(true)
                 processingStartTime = System.currentTimeMillis()
                 try {
-                    processChunk(audioChunk)
+                    processUtterance(utterance)
                 } catch (e: Exception) {
-                    Log.e(TAG, "processChunk 异常: ${e.message}", e)
-                    fileLog("❌ processChunk 顶层异常: ${e.javaClass.simpleName}: ${e.message}")
+                    Log.e(TAG, "processUtterance 异常: ${e.message}", e)
+                    fileLog("❌ processUtterance 顶层异常: ${e.javaClass.simpleName}: ${e.message}")
                     runOnUiThread {
                         binding.tvStatus.text = "🎙️ 监听中... (处理异常: ${e.message?.take(30)})"
                     }
                 } finally {
-                    isProcessing = false
+                    isProcessing.set(false)
                     processingStartTime = 0L
                 }
             }
         }
     }
 
-    private suspend fun processChunk(audioChunk: FloatArray) {
-        // 计算能量
-        var energy = 0f
-        for (s in audioChunk) energy += s * s
-        energy /= audioChunk.size
-        Log.d(TAG, "🔄 processChunk #$chunkCount, size=${audioChunk.size}, energy=$energy")
-        fileLog("🔄 processChunk #$chunkCount, size=${audioChunk.size}, energy=$energy")
+    /**
+     * ✅ 改版：处理一整段语音（VAD 切出的完整句子）
+     */
+    private suspend fun processUtterance(utterance: FloatArray) {
+        val durationMs = utterance.size * 1000L / WhisperManager.SAMPLE_RATE
 
-        // 如果能量太低，说明麦克风没声音
-        if (energy < 0.00001f) {
-            Log.w(TAG, "⚠️ 音频能量极低 ($energy)，麦克风可能没工作")
-            fileLog("⚠️ 音频能量极低 energy=$energy")
-            withContext(Dispatchers.Main) {
-                binding.tvStatus.text = "⚠️ 麦克风无声 (能量=$energy) #$chunkCount"
-            }
+        // 能量检查
+        var energy = 0f
+        for (s in utterance) energy += s * s
+        energy /= utterance.size
+
+        Log.d(TAG, "🔄 processUtterance #$segmentCount, ${utterance.size} samples (${durationMs}ms), energy=$energy")
+        fileLog("🔄 processUtterance #$segmentCount, ${utterance.size} samples (${durationMs}ms), energy=$energy")
+
+        // 太短或能量太低就跳过
+        if (durationMs < 500) {
+            Log.d(TAG, "⏭ 语音太短 (${durationMs}ms)，跳过")
+            fileLog("⏭ 语音太短 ${durationMs}ms")
+            return
+        }
+        if (energy < 0.000001f) {
+            Log.w(TAG, "⚠️ 音频能量极低 ($energy)")
+            fileLog("⚠️ 能量极低 $energy")
             return
         }
 
         withContext(Dispatchers.Main) {
-            binding.tvStatus.text = "🔄 识别中... #$chunkCount (能量=${String.format("%.6f", energy)})"
+            binding.tvStatus.text = "🔄 识别中... #$segmentCount (${durationMs / 1000.0}s)"
         }
 
         // ====== Whisper 转写 ======
         val result = try {
             withContext(Dispatchers.Default) {
                 withTimeoutOrNull(WHISPER_TIMEOUT_MS) {
-                    whisper.transcribeAuto(audioChunk)
+                    whisper.transcribeAuto(utterance)
                 }
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "❌ Whisper 转写超时 (${WHISPER_TIMEOUT_MS}ms)")
-            fileLog("❌ Whisper 转写超时 ${WHISPER_TIMEOUT_MS}ms")
+            fileLog("❌ Whisper 转写超时 ${WHISPER_TIMEOUT_MS}ms (${durationMs}ms 音频)")
             withContext(Dispatchers.Main) {
                 binding.tvStatus.text = "🎙️ 监听中... (转写超时，已跳过)"
             }
@@ -458,8 +475,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (result == null) {
-            Log.e(TAG, "❌ Whisper 转写返回 null")
-            fileLog("❌ Whisper 转写返回 null")
+            Log.e(TAG, "❌ Whisper 转写返回 null (超时)")
+            fileLog("❌ Whisper 转写返回 null (超时 ${WHISPER_TIMEOUT_MS}ms)")
             withContext(Dispatchers.Main) {
                 binding.tvStatus.text = "🎙️ 监听中... (转写超时)"
             }
@@ -470,11 +487,10 @@ class MainActivity : AppCompatActivity() {
         fileLog("✅ 转写结果: text='${result.text}', lang='${result.language}', isLao=${result.isLao}")
 
         if (result.text.isBlank()) {
-            skipCount++
-            Log.w(TAG, "转写返回空文本")
-            fileLog("⏭ 转写空文本, 跳过 #$skipCount")
+            Log.d(TAG, "转写返回空文本")
+            fileLog("⏭ 转写空文本 #$segmentCount")
             withContext(Dispatchers.Main) {
-                binding.tvStatus.text = "🎙️ 监听中... (有效 #$chunkCount, 跳过 #$skipCount)"
+                binding.tvStatus.text = "🎙️ 监听中... (段 #$segmentCount, 空文本)"
             }
             return
         }
@@ -491,7 +507,7 @@ class MainActivity : AppCompatActivity() {
             binding.tvTargetLabel.text = "译文 ($targetLangName)"
             sourceBuffer.append(result.text)
             binding.tvSourceText.text = sourceBuffer.toString()
-            binding.tvStatus.text = "✅ 已识别 #$chunkCount，翻译中..."
+            binding.tvStatus.text = "✅ 已识别 #$segmentCount，翻译中..."
         }
 
         // 翻译异步执行
@@ -511,7 +527,7 @@ class MainActivity : AppCompatActivity() {
                     withContext(Dispatchers.Main) {
                         targetBuffer.append(translated)
                         binding.tvTargetText.text = targetBuffer.toString()
-                        binding.tvStatus.text = "✅ 已翻译 #$chunkCount [MyMemory]"
+                        binding.tvStatus.text = "✅ 已翻译 #$segmentCount [MyMemory]"
                         if (autoSpeak) {
                             tts.speak(translated, targetLangCode)
                         }
@@ -535,7 +551,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopRecording() {
         recorder.stopRecording()
-        isProcessing = false
+        isProcessing.set(false)
         processingStartTime = 0L
         setRecordingUI(false)
         binding.tvStatus.text = "⏹ 已停止，点击麦克风继续"

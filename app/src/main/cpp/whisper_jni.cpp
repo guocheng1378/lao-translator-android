@@ -44,16 +44,15 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
 
     LOGI("nativeInit: loading model from %s", path);
 
-    // ✅ FIX: 看门狗改为 20s，和 Kotlin 侧配合更紧凑
     g_init_done = false;
     g_init_timeout = false;
     std::thread watchdog([&]() {
-        for (int i = 0; i < 20; i++) {
+        for (int i = 0; i < 30; i++) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             if (g_init_done) return;
         }
         g_init_timeout = true;
-        LOGE("nativeInit: 看门狗超时 (20s)，模型加载卡死");
+        LOGE("nativeInit: 看门狗超时 (30s)，模型加载卡死");
     });
     watchdog.detach();
 
@@ -76,7 +75,6 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
     }
 
     if (g_ctx) {
-        // ✅ FIX: 验证模型可用性
         int n_mels = whisper_model_n_mels(g_ctx);
         LOGI("nativeInit: OK (%ldms), n_mels=%d", (long)elapsed, n_mels);
         g_ctx_valid = true;
@@ -115,16 +113,26 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     std::lock_guard<std::mutex> lock(g_mutex);
 
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+
+    // ✅ 语言：auto 检测（你的是老挝语/中文双语）
     params.language = "auto";
     params.n_threads = n_threads;
     params.print_realtime = false;
     params.print_progress = false;
     params.print_timestamps = false;
-    params.no_context = true;
-    params.single_segment = true;
+
+    // ✅ 改动 1：允许上下文（整段语音比固定切片更需要上下文）
+    params.no_context = false;
+
+    // ✅ 改动 2：允许多段输出（不再是 single_segment）
+    params.single_segment = false;
+
     params.detect_language = true;
     params.greedy.best_of = 1;
     params.token_timestamps = false;
+
+    // ✅ 改动 3：设置初始 prompt 帮助语言偏向（可选，有助于老挝语检测）
+    // params.initial_prompt = nullptr;  // auto 即可
 
     auto t0 = std::chrono::steady_clock::now();
     int ret = whisper_full(g_ctx, params, samples, n_samples);
@@ -139,7 +147,8 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
         return env->NewStringUTF("");
     }
 
-    LOGI("whisper_full done (%ldms)", (long)elapsed);
+    LOGI("whisper_full done (%ldms, %d samples, %.1fs audio, %d threads)",
+         (long)elapsed, n_samples, (float)n_samples / 16000.0f, n_threads);
 
     std::string result;
     int lang_id = whisper_full_lang_id(g_ctx);
