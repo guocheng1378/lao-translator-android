@@ -39,12 +39,12 @@ class AudioRecorder(private val context: Context? = null) {
         // 语音前保留的上下文时长
         private const val PRE_VOICE_MS = 800L                // 语音开始前保留 800ms（捕获发音开头）
         // 每次读取的帧大小
-        private const val FRAME_DURATION_MS = 50L            // 每 50ms 检测一次
+        private const val FRAME_DURATION_MS = 50             // 每 50ms 检测一次
         private const val FRAME_SIZE = SAMPLE_RATE * FRAME_DURATION_MS / 1000  // 800 samples
 
         // 环形缓冲区大小：最大录音 + 预留
         private const val BUFFER_DURATION_MS = MAX_SEGMENT_MS + 2000
-        private const val BUFFER_SIZE = (SAMPLE_RATE * BUFFER_DURATION_MS / 1000).toInt()
+        private const val BUFFER_SIZE = (SAMPLE_RATE * (BUFFER_DURATION_MS / 1000)).toInt()
     }
 
     sealed class RecordState {
