@@ -354,12 +354,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * ✅ FIX: 识别结果立刻显示，翻译异步执行，不阻塞下一轮识别
+     */
     private suspend fun processChunk(audioChunk: FloatArray) {
         Log.d(TAG, "🔄 processChunk #$chunkCount, audioChunk.size=${audioChunk.size}")
         withContext(Dispatchers.Main) {
             binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
         }
 
+        // ====== Whisper 转写（必须同步等结果）======
         val result = try {
             withContext(Dispatchers.Default) {
                 withTimeoutOrNull(WHISPER_TIMEOUT_MS) {
@@ -404,45 +408,46 @@ class MainActivity : AppCompatActivity() {
         val targetLangCode = targetLang(result.language)
         val targetLangName = langName(targetLangCode)
 
+        // ✅ 关键改动：原文立刻显示，不等翻译
         withContext(Dispatchers.Main) {
             binding.tvDetectedLang.text = "🌐 $sourceLangName → $targetLangName"
             binding.tvSourceLabel.text = "原文 ($sourceLangName)"
             binding.tvTargetLabel.text = "译文 ($targetLangName)"
             sourceBuffer.append(result.text)
             binding.tvSourceText.text = sourceBuffer.toString()
+            binding.tvStatus.text = "✅ 已识别 #$chunkCount，翻译中..."
         }
 
+        // ✅ 关键改动：翻译用 launch 异步，不阻塞下一轮识别
         val dir = if (result.isLao)
             TranslationManager.TranslateDirection.LaoToChinese
         else
             TranslationManager.TranslateDirection.ChineseToLao
 
-        val translated = try {
-            withContext(Dispatchers.IO) {
-                translator.translate(result.text.trim(), dir)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "翻译失败: ${e.message}", e)
-            withContext(Dispatchers.Main) {
-                binding.tvStatus.text = "⚠️ 识别到: \"${result.text.take(20)}\" 但翻译失败"
-            }
-            return
-        }
-
-        if (!translated.isNullOrBlank()) {
-            withContext(Dispatchers.Main) {
-                targetBuffer.append(translated)
-                binding.tvTargetText.text = targetBuffer.toString()
-                binding.tvStatus.text = "✅ 已翻译 #$chunkCount [MyMemory]"
-
-                if (autoSpeak) {
-                    tts.speak(translated, targetLangCode)
+        lifecycleScope.launch {
+            try {
+                val translated = withContext(Dispatchers.IO) {
+                    translator.translate(result.text.trim(), dir)
                 }
-            }
-        } else {
-            Log.e(TAG, "翻译返回空! text='${result.text}'")
-            withContext(Dispatchers.Main) {
-                binding.tvStatus.text = "⚠️ 识别到: \"${result.text.take(20)}\" 但翻译返回空"
+                if (!translated.isNullOrBlank()) {
+                    withContext(Dispatchers.Main) {
+                        targetBuffer.append(translated)
+                        binding.tvTargetText.text = targetBuffer.toString()
+                        binding.tvStatus.text = "✅ 已翻译 #$chunkCount [MyMemory]"
+                        if (autoSpeak) {
+                            tts.speak(translated, targetLangCode)
+                        }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        binding.tvStatus.text = "⚠️ 翻译返回空"
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "翻译失败: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    binding.tvStatus.text = "⚠️ 识别: \"${result.text.take(20)}\" 翻译失败: ${e.message?.take(20)}"
+                }
             }
         }
     }
