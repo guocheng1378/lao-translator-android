@@ -33,8 +33,10 @@ class WhisperManager(private val context: Context) {
         val isChinese: Boolean = language == "zh"
     )
 
-    private var isInitialized = false
+    // ✅ FIX: 重命名避免和函数名冲突
+    private var _initialized = false
     private var warmedUp = false
+    private var lastDetectedLang = "zh"  // ✅ FIX: 记住上次检测到的语言，作为兜底
 
     private external fun nativeInit(modelPath: String): Boolean
     private external fun nativeTranscribe(audioData: FloatArray, nSamples: Int, language: String): String
@@ -82,19 +84,19 @@ class WhisperManager(private val context: Context) {
         Log.d(TAG, "开始 nativeInit, 路径: ${modelFile.absolutePath}")
 
         val t0 = System.currentTimeMillis()
-        isInitialized = nativeInit(modelFile.absolutePath)
+        _initialized = nativeInit(modelFile.absolutePath)
         val elapsed = System.currentTimeMillis() - t0
 
-        Log.d(TAG, "nativeInit 返回: $isInitialized, 耗时=${elapsed}ms, 文件大小=${fileSize} bytes")
-        if (!isInitialized) {
+        Log.d(TAG, "nativeInit 返回: $_initialized, 耗时=${elapsed}ms, 文件大小=${fileSize} bytes")
+        if (!_initialized) {
             Log.e(TAG, "nativeInit 失败！模型可能损坏或格式不正确")
             throw IllegalStateException("Whisper 模型初始化失败（耗时${elapsed}ms），模型文件可能损坏")
         }
-        isInitialized
+        _initialized
     }
 
     suspend fun warmup() {
-        if (!isInitialized || warmedUp) return
+        if (!_initialized || warmedUp) return
         withContext(Dispatchers.Default) {
             Log.d(TAG, "开始 warmup...")
             val silence = FloatArray(SAMPLE_RATE) { 0.001f }
@@ -110,8 +112,8 @@ class WhisperManager(private val context: Context) {
 
     suspend fun transcribeAuto(samples: FloatArray): TranscribeResult =
         withContext(Dispatchers.Default) {
-            if (!isInitialized) {
-                Log.w(TAG, "transcribeAuto 调用时 isInitialized=false")
+            if (!_initialized) {
+                Log.w(TAG, "transcribeAuto 调用时 _initialized=false")
                 return@withContext TranscribeResult("", "")
             }
 
@@ -137,11 +139,21 @@ class WhisperManager(private val context: Context) {
             }
             val text = if (lines.size > 1) lines[1].trim() else raw.trim()
 
+            // ✅ FIX: 语言检测兜底 — 空字符串时用上次检测到的语言
             val langCode = when {
                 detectedLang.startsWith("lao") -> "lo"
                 detectedLang.startsWith("chinese") || detectedLang == "zh" -> "zh"
                 detectedLang.startsWith("english") -> "en"
-                else -> detectedLang
+                detectedLang.isNotBlank() -> detectedLang
+                else -> {
+                    Log.w(TAG, "语言检测为空，使用上次语言兜底: '$lastDetectedLang'")
+                    lastDetectedLang
+                }
+            }
+
+            // ✅ FIX: 只有非空结果才更新 lastDetectedLang
+            if (text.isNotBlank()) {
+                lastDetectedLang = langCode
             }
 
             Log.d(TAG, "转写结果: text='$text', lang='$langCode' (原始='$detectedLang')")
@@ -150,7 +162,7 @@ class WhisperManager(private val context: Context) {
 
     suspend fun transcribe(samples: FloatArray, language: String): String =
         withContext(Dispatchers.Default) {
-            if (!isInitialized) return@withContext ""
+            if (!_initialized) return@withContext ""
             val raw = nativeTranscribe(samples, samples.size, language)
             val lines = raw.split("\n", limit = 2)
             if (lines.size > 1) lines[1].trim() else raw.trim()
@@ -162,12 +174,13 @@ class WhisperManager(private val context: Context) {
         return energy / samples.size
     }
 
-    fun isInitialized(): Boolean = isInitialized
+    // ✅ FIX: 统一用 _initialized 字段
+    fun isInitialized(): Boolean = _initialized
 
     fun release() {
-        if (isInitialized) {
+        if (_initialized) {
             nativeRelease()
-            isInitialized = false
+            _initialized = false
             warmedUp = false
             Log.d(TAG, "Whisper 已释放")
         }

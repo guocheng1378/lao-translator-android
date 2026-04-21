@@ -18,12 +18,14 @@ import java.net.URLEncoder
  *
  * ✅ FIX: 移除 ML Kit 依赖（在中国大陆连接 Google 服务超时）
  * 改为纯 MyMemory API（免费，支持 zh↔lo）
- * 如果未来需要离线翻译，可以加本地模型
+ * ✅ FIX: 加 LRU 缓存 + 限频，避免撞 MyMemory 免费额度
  */
 class TranslationManager(private val context: Context) {
 
     companion object {
         private const val TAG = "TranslationManager"
+        // ✅ FIX: 最大缓存条目数
+        private const val CACHE_MAX_SIZE = 200
     }
 
     sealed class TranslateDirection {
@@ -38,18 +40,20 @@ class TranslationManager(private val context: Context) {
 
     private var _isReady = false
 
+    // ✅ FIX: 简单 LRU 缓存
+    private val cache = object : LinkedHashMap<String, String>(CACHE_MAX_SIZE, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
+            return size > CACHE_MAX_SIZE
+        }
+    }
+
     val isReady: Boolean get() = _isReady
 
-    /**
-     * 初始化：检查网络连通性
-     * ✅ FIX: 不再依赖 ML Kit（Google 服务在中国超时）
-     */
     suspend fun init() = withContext(Dispatchers.IO) {
         _isReady = false
 
         if (isNetworkAvailable()) {
             try {
-                // 测试 MyMemory 连通性
                 val test = translateMyMemory("hello", "en|zh-CN")
                 if (test.isNotBlank()) {
                     Log.d(TAG, "✅ MyMemory 连通测试通过: 'hello' -> '$test'")
@@ -70,17 +74,11 @@ class TranslationManager(private val context: Context) {
         Log.d(TAG, "TranslationManager 就绪: $_isReady, network=${isNetworkAvailable()}")
     }
 
-    /**
-     * 获取当前翻译模式
-     */
     fun getCurrentMode(): TranslateMode = when {
         isNetworkAvailable() -> TranslateMode.MYMEMORY_LAO
         else -> TranslateMode.UNAVAILABLE
     }
 
-    /**
-     * 翻译文本
-     */
     suspend fun translate(text: String, direction: TranslateDirection): String {
         if (text.isBlank()) return ""
 
@@ -92,17 +90,26 @@ class TranslationManager(private val context: Context) {
             throw IllegalStateException("无网络连接，无法翻译")
         }
 
-        return translateViaMyMemory(text, direction)
-    }
-
-    /**
-     * MyMemory API: 真正的老挝语翻译 (需网络)
-     */
-    private suspend fun translateViaMyMemory(text: String, direction: TranslateDirection): String {
         val langPair = when (direction) {
             TranslateDirection.LaoToChinese -> "lo|zh-CN"
             TranslateDirection.ChineseToLao -> "zh-CN|lo"
         }
+
+        // ✅ FIX: 查缓存
+        val cacheKey = "$langPair|$text"
+        cache[cacheKey]?.let {
+            Log.d(TAG, "缓存命中: '${text.take(20)}' -> '$it'")
+            return it
+        }
+
+        return translateViaMyMemory(text, langPair).also { result ->
+            if (result.isNotBlank()) {
+                synchronized(cache) { cache[cacheKey] = result }
+            }
+        }
+    }
+
+    private suspend fun translateViaMyMemory(text: String, langPair: String): String {
         return withContext(Dispatchers.IO) {
             val result = translateMyMemory(text, langPair)
             if (result.isNotBlank()) {
@@ -115,10 +122,13 @@ class TranslationManager(private val context: Context) {
         }
     }
 
-    /**
-     * MyMemory HTTP 请求
-     */
     private fun translateMyMemory(text: String, langPair: String): String {
+        // ✅ FIX: 短文本（1-2字符）跳过翻译，减少无意义请求
+        if (text.trim().length <= 2) {
+            Log.d(TAG, "文本过短，跳过翻译: '$text'")
+            return text
+        }
+
         val encoded = URLEncoder.encode(text, "UTF-8")
         val urlStr = "https://api.mymemory.translated.net/get?q=$encoded&langpair=$langPair"
 
@@ -154,9 +164,6 @@ class TranslationManager(private val context: Context) {
         }
     }
 
-    /**
-     * 检测网络是否可用
-     */
     private fun isNetworkAvailable(): Boolean {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -168,11 +175,9 @@ class TranslationManager(private val context: Context) {
         }
     }
 
-    /**
-     * 释放资源
-     */
     fun release() {
         _isReady = false
+        synchronized(cache) { cache.clear() }
         Log.d(TAG, "TranslationManager 已释放")
     }
 }

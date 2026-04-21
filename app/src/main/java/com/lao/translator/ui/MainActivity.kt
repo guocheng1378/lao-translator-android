@@ -2,6 +2,7 @@ package com.lao.translator.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -10,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.lao.translator.databinding.ActivityMainBinding
+import com.lao.translator.service.TranslationService
 import com.lao.translator.stt.AudioRecorder
 import com.lao.translator.stt.WhisperManager
 import com.lao.translator.translate.TranslationManager
@@ -24,9 +26,9 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        // ✅ FIX: Whisper 转写超时（毫秒），原生代码无法被协程中断，需要自己兜底
+        // Whisper 转写超时（毫秒），原生代码无法被协程中断，需要自己兜底
         private const val WHISPER_TIMEOUT_MS = 25_000L
-        // ✅ FIX: isProcessing 最大允许时间（秒），超过强制重置
+        // isProcessing 最大允许时间（秒），超过强制重置
         private const val MAX_PROCESSING_SECONDS = 30
     }
 
@@ -43,7 +45,7 @@ class MainActivity : AppCompatActivity() {
     private var skipCount = 0
     private var autoSpeak = true
     @Volatile private var isProcessing = false
-    @Volatile private var processingStartTime = 0L  // ✅ FIX: 记录开始处理时间
+    @Volatile private var processingStartTime = 0L
     private var modelsReady = false
     private var whisperReady = false
 
@@ -64,8 +66,23 @@ class MainActivity : AppCompatActivity() {
         tts = TtsManager(this)
         recorder = AudioRecorder(this)
 
+        // ✅ FIX: 请求通知权限（Android 13+）
+        requestNotificationPermission()
+
         setupUI()
         initModels()
+    }
+
+    // ✅ FIX: Android 13+ 需要 POST_NOTIFICATIONS 权限
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                registerForActivityResult(ActivityResultContracts.RequestPermission()) {}.launch(
+                    Manifest.permission.POST_NOTIFICATIONS
+                )
+            }
+        }
     }
 
     private fun setupUI() {
@@ -94,7 +111,7 @@ class MainActivity : AppCompatActivity() {
             else checkPermissionAndStart()
         }
 
-        // 文字翻译测试按钮
+        // ✅ FIX: 文字翻译 — 自动检测语言方向，不再硬编码中文→老挝语
         binding.btnTextTranslate.setOnClickListener {
             val input = binding.etTextInput.text.toString().trim()
             if (input.isBlank()) return@setOnClickListener
@@ -104,14 +121,23 @@ class MainActivity : AppCompatActivity() {
 
             lifecycleScope.launch {
                 try {
-                    val dir = TranslationManager.TranslateDirection.ChineseToLao
+                    // ✅ FIX: 自动检测语言方向（老挝语包含 ກ-ໜ Unicode 范围）
+                    val hasLaoChars = input.any { it in '\u0E80'..\u0EFF }
+                    val dir = if (hasLaoChars) {
+                        TranslationManager.TranslateDirection.LaoToChinese
+                    } else {
+                        TranslationManager.TranslateDirection.ChineseToLao
+                    }
+                    val sourceName = if (hasLaoChars) "老挝语" else "中文"
+                    val targetName = if (hasLaoChars) "中文" else "老挝语"
+
                     val translated = withContext(Dispatchers.IO) {
                         translator.translate(input, dir)
                     }
                     if (!translated.isNullOrBlank()) {
                         binding.tvTargetText.text = translated
                         binding.tvStatus.text = "✅ 翻译成功 [MyMemory]"
-                        binding.tvDetectedLang.text = "🌐 中文 → 老挝语"
+                        binding.tvDetectedLang.text = "🌐 $sourceName → $targetName"
                     } else {
                         binding.tvStatus.text = "⚠️ 翻译返回空"
                     }
@@ -129,21 +155,18 @@ class MainActivity : AppCompatActivity() {
         binding.tvStatus.text = "⚡ 正在加载语音模型..."
         Log.d(TAG, "initModels nativeLoaded=${WhisperManager.nativeLoaded} mem=${availMem}/${maxMem}MB")
 
-        // 如果 native 库没加载成功，直接报错
         if (!WhisperManager.nativeLoaded) {
             binding.tvStatus.text = "❌ 语音库加载失败，设备不支持 arm64-v8a"
             Log.e(TAG, "whisper_jni 未加载！")
             return
         }
 
-        // Whisper 必须先加载完才能用
         lifecycleScope.launch {
             try {
                 withTimeout(60_000) {
                     withContext(Dispatchers.IO) {
                         ensureModelExists("ggml-base.bin")
 
-                        // ✅ FIX: 下载完成后提示正在初始化
                         withContext(Dispatchers.Main) {
                             binding.tvStatus.text = "⚡ 模型已下载，正在加载到内存..."
                         }
@@ -158,7 +181,6 @@ class MainActivity : AppCompatActivity() {
                             throw IllegalStateException("nativeInit 返回 false（${elapsed}ms）")
                         }
                     }
-                    // warmup 可选，失败不影响
                     try { whisper.warmup() } catch (_: Exception) {}
                     whisperReady = true
                     modelsReady = true
@@ -176,7 +198,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 翻译后台加载
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { translator.init() }
@@ -192,7 +213,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // TTS 后台加载
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { tts.init() }
@@ -213,7 +233,6 @@ class MainActivity : AppCompatActivity() {
 
         modelDir.mkdirs()
 
-        // 1. Try assets
         try {
             assets.open("models/$modelName").use { input ->
                 FileOutputStream(modelFile).use { output -> input.copyTo(output) }
@@ -222,7 +241,6 @@ class MainActivity : AppCompatActivity() {
             return@withContext
         } catch (_: Exception) {}
 
-        // 2. Try external storage
         val ext = File(getExternalFilesDir(null), "models/$modelName")
         if (ext.exists()) {
             ext.copyTo(modelFile)
@@ -230,7 +248,6 @@ class MainActivity : AppCompatActivity() {
             return@withContext
         }
 
-        // 3. Download from HuggingFace mirror
         withContext(Dispatchers.Main) {
             binding.tvStatus.text = "📥 正在下载模型 (142MB)，请等待..."
         }
@@ -302,8 +319,10 @@ class MainActivity : AppCompatActivity() {
         binding.tvDetectedLang.text = "🎙️ 监听中..."
         setRecordingUI(true)
 
+        // ✅ FIX: 启动前台服务，防止进程被 HyperOS 杀掉
+        TranslationService.start(this)
+
         recorder.startRecording(chunkDurationMs = 2000, overlapMs = 500) { audioChunk ->
-            // ✅ FIX: 强制重置卡死的 isProcessing
             val now = System.currentTimeMillis()
             if (isProcessing) {
                 if (processingStartTime > 0 && (now - processingStartTime) > MAX_PROCESSING_SECONDS * 1000) {
@@ -341,9 +360,6 @@ class MainActivity : AppCompatActivity() {
             binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
         }
 
-        // ✅ FIX: Whisper 转写，带超时保护
-        // 注意：withTimeout 只能取消协程，不能中断阻塞的 JNI 调用
-        // 所以这里用 withTimeoutOrNull + 异常处理双保险
         val result = try {
             withContext(Dispatchers.Default) {
                 withTimeoutOrNull(WHISPER_TIMEOUT_MS) {
@@ -364,7 +380,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // result 为 null 说明超时了
         if (result == null) {
             Log.e(TAG, "❌ Whisper 转写返回 null（超时）")
             withContext(Dispatchers.Main) {
@@ -397,7 +412,6 @@ class MainActivity : AppCompatActivity() {
             binding.tvSourceText.text = sourceBuffer.toString()
         }
 
-        // 翻译
         val dir = if (result.isLao)
             TranslationManager.TranslateDirection.LaoToChinese
         else
@@ -440,6 +454,9 @@ class MainActivity : AppCompatActivity() {
         setRecordingUI(false)
         binding.tvStatus.text = "⏹ 已停止，点击麦克风继续"
         Log.d(TAG, "⏹ 录音已停止")
+
+        // ✅ FIX: 停止前台服务
+        TranslationService.stop(this)
     }
 
     private fun setRecordingUI(recording: Boolean) {
@@ -472,5 +489,7 @@ class MainActivity : AppCompatActivity() {
         whisper.release()
         translator.release()
         tts.release()
+        // ✅ FIX: 确保 Activity 销毁时也停止前台服务
+        TranslationService.stop(this)
     }
 }

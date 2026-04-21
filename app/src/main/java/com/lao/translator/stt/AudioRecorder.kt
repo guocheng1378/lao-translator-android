@@ -19,10 +19,8 @@ class AudioRecorder(private val context: Context? = null) {
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
 
-        // ✅ FIX: 大幅降低能量阈值，小米/HyperOS 下 MediaRecorder 输出能量偏低
         private const val ENERGY_THRESHOLD = 0.0001f
         private const val SILENCE_RATIO_THRESHOLD = 0.85f
-        private const val TEST_ENERGY_THRESHOLD = 0.0f  // ✅ FIX: 不再用能量过滤 AudioRecord 源
     }
 
     sealed class RecordState {
@@ -32,7 +30,11 @@ class AudioRecorder(private val context: Context? = null) {
     }
 
     private var audioRecord: AudioRecord? = null
-    private var mediaRecorder: MediaRecorder? = null
+
+    // ✅ FIX: 用 @Volatile + synchronized 保护 mediaRecorder，防止竞态
+    @Volatile private var mediaRecorder: MediaRecorder? = null
+    private val mrLock = Object()
+
     private var recordingJob: Job? = null
     private var audioManager: AudioManager? = null
     private var focusRequest: AudioFocusRequest? = null
@@ -53,7 +55,6 @@ class AudioRecorder(private val context: Context? = null) {
         stopRecording()
         scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-        // 请求音频焦点
         requestAudioFocus()
 
         scope?.launch {
@@ -83,7 +84,6 @@ class AudioRecorder(private val context: Context? = null) {
                         continue
                     }
                     ar.startRecording()
-                    // 读 1 秒测试
                     var maxEnergy = 0f
                     var totalRead = 0
                     for (attempt in 0..2) {
@@ -97,7 +97,6 @@ class AudioRecorder(private val context: Context? = null) {
                     }
                     Log.d(TAG, "AudioRecord test: source=$src maxEnergy=$maxEnergy totalRead=$totalRead")
 
-                    // ✅ FIX: 只要能读到数据就用这个源，不再用能量阈值过滤
                     if (totalRead > 0) {
                         Log.d(TAG, "✅ AudioRecord 可用 (source=$src, energy=$maxEnergy)")
                         ar.stop(); ar.release()
@@ -113,7 +112,6 @@ class AudioRecorder(private val context: Context? = null) {
                 }
             }
 
-            // 全部失败 → MediaRecorder 降级
             Log.w(TAG, "所有 AudioRecord 源均不可用，降级到 MediaRecorder")
             startMediaRecorderMode(chunkDurationMs, onChunk)
         }
@@ -126,7 +124,6 @@ class AudioRecorder(private val context: Context? = null) {
                 val focusReq = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            // ✅ FIX: 改为 USAGE_MEDIA，HyperOS 对 VOICE_COMMUNICATION 限制更严
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                             .build()
@@ -189,8 +186,6 @@ class AudioRecorder(private val context: Context? = null) {
                     val hasVoice = detectVoice(chunk)
                     val energy = calcEnergy(chunk)
 
-                    // ✅ FIX: AudioRecord 模式下，前几个 chunk 直接发送（等价于关闭静音过滤）
-                    // 只在连续很多个纯静音时才跳过
                     if (hasVoice || firstChunk || energy > 0.0001f) {
                         chunkCount++
                         consecutiveSilence = 0
@@ -204,7 +199,6 @@ class AudioRecorder(private val context: Context? = null) {
                         Log.d(TAG, "AudioRecord 静音 #$skippedCount energy=$energy")
                         _state.value = RecordState.Recording(chunkCount, skippedCount)
 
-                        // 连续 15 个静音 chunk 且从未检测到语音 → 降级到 MediaRecorder
                         if (consecutiveSilence >= 15 && chunkCount == 0) {
                             Log.w(TAG, "连续 $consecutiveSilence 个静音 chunk 且无语音，降级到 MediaRecorder")
                             audioRecord?.stop(); audioRecord?.release(); audioRecord = null
@@ -222,8 +216,7 @@ class AudioRecorder(private val context: Context? = null) {
     }
 
     /**
-     * MediaRecorder 降级模式
-     * ✅ FIX: 移除能量阈值过滤，所有 chunk 直接发送给 Whisper 判断
+     * ✅ FIX: MediaRecorder 模式加 synchronized 保护，防止 stopRecording 竞态
      */
     @SuppressLint("MissingPermission")
     private fun startMediaRecorderMode(
@@ -241,7 +234,7 @@ class AudioRecorder(private val context: Context? = null) {
             while (isActive) {
                 val tmpFile = File(context?.cacheDir ?: File("/tmp"), "mr_seg_${segIdx++}.wav")
                 try {
-                    mediaRecorder = MediaRecorder().apply {
+                    val mr = MediaRecorder().apply {
                         setAudioSource(MediaRecorder.AudioSource.MIC)
                         setOutputFormat(MediaRecorder.OutputFormat.DEFAULT)
                         setAudioEncoder(MediaRecorder.AudioEncoder.DEFAULT)
@@ -251,18 +244,24 @@ class AudioRecorder(private val context: Context? = null) {
                         prepare()
                         start()
                     }
+                    // ✅ FIX: 先赋值再 start，stopRecording 中加锁检查
+                    synchronized(mrLock) { mediaRecorder = mr }
 
                     delay(chunkDurationMs.toLong())
 
-                    mediaRecorder?.apply { stop(); release() }
-                    mediaRecorder = null
+                    // ✅ FIX: stop/release 也加锁
+                    synchronized(mrLock) {
+                        mediaRecorder?.let {
+                            try { it.stop() } catch (_: Exception) {}
+                            try { it.release() } catch (_: Exception) {}
+                        }
+                        mediaRecorder = null
+                    }
 
                     val pcm = readWavPcm(tmpFile)
                     if (pcm != null && pcm.isNotEmpty()) {
                         val energy = calcEnergy(pcm)
                         chunkCount++
-                        // ✅ FIX: 移除能量阈值判断，直接发送给 Whisper
-                        // Whisper 自己会判断是否有语音内容
                         Log.d(TAG, "✅ MR chunk #$chunkCount: size=${pcm.size} energy=$energy → 发送给 Whisper")
                         _state.value = RecordState.Recording(chunkCount, 0)
                         onChunk(pcm)
@@ -271,8 +270,10 @@ class AudioRecorder(private val context: Context? = null) {
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "MR 录制异常: ${e.message}", e)
-                    try { mediaRecorder?.release() } catch (_: Exception) {}
-                    mediaRecorder = null
+                    synchronized(mrLock) {
+                        try { mediaRecorder?.release() } catch (_: Exception) {}
+                        mediaRecorder = null
+                    }
                     delay(500)
                 } finally {
                     tmpFile.delete()
@@ -337,9 +338,14 @@ class AudioRecorder(private val context: Context? = null) {
         scope?.cancel(); scope = null
         recordingJob?.cancel(); recordingJob = null
         audioRecord?.stop(); audioRecord?.release(); audioRecord = null
-        try { mediaRecorder?.stop() } catch (_: Exception) {}
-        try { mediaRecorder?.release() } catch (_: Exception) {}
-        mediaRecorder = null
+
+        // ✅ FIX: 统一加锁释放 MediaRecorder
+        synchronized(mrLock) {
+            try { mediaRecorder?.stop() } catch (_: Exception) {}
+            try { mediaRecorder?.release() } catch (_: Exception) {}
+            mediaRecorder = null
+        }
+
         try { focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) } } catch (_: Exception) {}
         _state.value = RecordState.Idle
         Log.d(TAG, "录音已停止")
