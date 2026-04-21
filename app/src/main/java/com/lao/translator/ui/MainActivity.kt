@@ -165,7 +165,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 withTimeout(60_000) {
                     withContext(Dispatchers.IO) {
-                        ensureModelExists("ggml-base.bin")
+                        ensureModelExists("ggml-tiny.bin")
 
                         withContext(Dispatchers.Main) {
                             binding.tvStatus.text = "⚡ 模型已下载，正在加载到内存..."
@@ -173,7 +173,7 @@ class MainActivity : AppCompatActivity() {
                         Log.d(TAG, "模型文件就绪, 开始 nativeInit")
 
                         val t0 = System.currentTimeMillis()
-                        whisper.init("ggml-base.bin")
+                        whisper.init("ggml-tiny.bin")
                         val elapsed = System.currentTimeMillis() - t0
                         Log.d(TAG, "nativeInit 完成, 耗时=${elapsed}ms")
 
@@ -249,11 +249,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         withContext(Dispatchers.Main) {
-            binding.tvStatus.text = "📥 正在下载模型 (142MB)，请等待..."
+            binding.tvStatus.text = "📥 正在下载模型 (75MB)，请等待..."
         }
 
         try {
-            val url = URL("https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-base.bin")
+            val url = URL("https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin")
             val conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 30000
             conn.readTimeout = 60000

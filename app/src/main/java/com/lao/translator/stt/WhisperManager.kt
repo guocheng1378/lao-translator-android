@@ -42,7 +42,7 @@ class WhisperManager(private val context: Context) {
     private external fun nativeTranscribe(audioData: FloatArray, nSamples: Int, language: String): String
     private external fun nativeRelease()
 
-    suspend fun init(modelName: String = "ggml-base.bin"): Boolean = withContext(Dispatchers.IO) {
+    suspend fun init(modelName: String = "ggml-tiny.bin"): Boolean = withContext(Dispatchers.IO) {
         if (!nativeLoaded) {
             Log.e(TAG, "nativeLoaded=false, 无法加载 whisper_jni")
             throw IllegalStateException("Native 库加载失败，设备可能不支持此架构 (arm64-v8a)")

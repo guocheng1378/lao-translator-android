@@ -15,7 +15,8 @@
         android:allowBackup="true"
         android:label="老挝语翻译"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Material3.Light.NoActionBar">
+        android:theme="@style/Theme.Material3.Light.NoActionBar"
+        android:largeHeap="true">
 
         <activity
             android:name=".ui.MainActivity"

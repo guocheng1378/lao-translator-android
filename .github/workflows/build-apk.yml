@@ -22,7 +22,16 @@ jobs:
         run: yes | sdkmanager --licenses
 
       - name: Setup whisper.cpp source
-        run: bash setup.sh 2>&1 | head -20
+        run: |
+          git clone --depth 1 --branch v1.7.6 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper-src
+          rm -rf app/src/main/cpp/whisper
+          mkdir -p app/src/main/cpp/whisper
+          cp -r /tmp/whisper-src/ggml app/src/main/cpp/whisper/
+          cp -r /tmp/whisper-src/src app/src/main/cpp/whisper/
+          cp -r /tmp/whisper-src/include app/src/main/cpp/whisper/
+          rm -rf /tmp/whisper-src
+          echo "=== whisper files ==="
+          find app/src/main/cpp/whisper -name "*.c" -o -name "*.cpp" -o -name "*.h" | wc -l
 
       - name: Build APK
         run: chmod +x gradlew && ./gradlew assembleDebug
