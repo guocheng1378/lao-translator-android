@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
-import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -25,6 +24,10 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        // ✅ FIX: Whisper 转写超时（毫秒），原生代码无法被协程中断，需要自己兜底
+        private const val WHISPER_TIMEOUT_MS = 25_000L
+        // ✅ FIX: isProcessing 最大允许时间（秒），超过强制重置
+        private const val MAX_PROCESSING_SECONDS = 30
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -39,7 +42,8 @@ class MainActivity : AppCompatActivity() {
     private var chunkCount = 0
     private var skipCount = 0
     private var autoSpeak = true
-    private var isProcessing = false
+    @Volatile private var isProcessing = false
+    @Volatile private var processingStartTime = 0L  // ✅ FIX: 记录开始处理时间
     private var modelsReady = false
     private var whisperReady = false
 
@@ -106,10 +110,10 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (!translated.isNullOrBlank()) {
                         binding.tvTargetText.text = translated
-                        binding.tvStatus.text = "✅ 翻译成功 [${translator.getCurrentMode()}]"
+                        binding.tvStatus.text = "✅ 翻译成功 [MyMemory]"
                         binding.tvDetectedLang.text = "🌐 中文 → 老挝语"
                     } else {
-                        binding.tvStatus.text = "⚠️ 翻译返回空! 模式=${translator.getCurrentMode()}"
+                        binding.tvStatus.text = "⚠️ 翻译返回空"
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "文字翻译失败", e)
@@ -128,7 +132,7 @@ class MainActivity : AppCompatActivity() {
         // Whisper 必须先加载完才能用
         lifecycleScope.launch {
             try {
-                withTimeout(120_000) { // 2 分钟超时
+                withTimeout(120_000) {
                     withContext(Dispatchers.IO) {
                         ensureModelExists("ggml-base.bin")
                         Log.d(TAG, "模型文件就绪, 开始 nativeInit")
@@ -136,15 +140,15 @@ class MainActivity : AppCompatActivity() {
                         whisper.init("ggml-base.bin")
                         Log.d(TAG, "nativeInit 完成, 耗时=${System.currentTimeMillis() - t0}ms")
                     }
-                    // 跳过 warmup — 它会导致小米设备上的 whisper 崩溃
-                    // warmup 只是预热 JIT，不影响实际使用
+                    // 尝试 warmup（如果失败不影响使用）
+                    try { whisper.warmup() } catch (_: Exception) {}
                     whisperReady = true
                     modelsReady = true
-                    binding.tvStatus.text = "🎙️ 语音就绪，翻译模型加载中..."
-                    Log.d(TAG, "Whisper 加载完成")
+                    binding.tvStatus.text = "🎙️ 语音就绪，点击麦克风开始"
+                    Log.d(TAG, "✅ Whisper 加载完成")
                 }
             } catch (e: TimeoutCancellationException) {
-                binding.tvStatus.text = "❌ 语音模型加载超时（2分钟），请重启应用"
+                binding.tvStatus.text = "❌ 语音模型加载超时，请重启应用"
                 Log.e(TAG, "Whisper 加载超时", e)
                 modelsReady = false
                 return@launch
@@ -156,27 +160,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 翻译和 TTS 后台加载，不阻塞主流程
+        // 翻译后台加载
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { translator.init() }
-                Log.d(TAG, "翻译模型加载完成, 模式=${translator.getCurrentMode()}")
-                // 翻译就绪后更新状态（仅当 Whisper 也已就绪）
+                Log.d(TAG, "✅ 翻译服务就绪")
                 if (whisperReady) {
                     binding.tvStatus.text = "✅ 全部就绪，点击麦克风开始"
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "翻译模型加载失败", e)
+                Log.e(TAG, "翻译服务加载失败", e)
                 if (whisperReady) {
                     binding.tvStatus.text = "🎙️ 语音就绪（翻译不可用: ${e.message}），点击麦克风开始"
                 }
             }
         }
 
+        // TTS 后台加载
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { tts.init() }
-                Log.d(TAG, "TTS 加载完成")
+                Log.d(TAG, "✅ TTS 就绪: 中文=${tts.isChineseAvailable()}, 老挝语=${tts.isLaoAvailable()}")
             } catch (e: Exception) {
                 Log.e(TAG, "TTS 加载失败", e)
             }
@@ -186,7 +190,10 @@ class MainActivity : AppCompatActivity() {
     private suspend fun ensureModelExists(modelName: String) = withContext(Dispatchers.IO) {
         val modelDir = File(filesDir, "models")
         val modelFile = File(modelDir, modelName)
-        if (modelFile.exists()) return@withContext
+        if (modelFile.exists()) {
+            Log.d(TAG, "模型已存在: ${modelFile.length()} bytes")
+            return@withContext
+        }
 
         modelDir.mkdirs()
 
@@ -195,6 +202,7 @@ class MainActivity : AppCompatActivity() {
             assets.open("models/$modelName").use { input ->
                 FileOutputStream(modelFile).use { output -> input.copyTo(output) }
             }
+            Log.d(TAG, "从 assets 复制模型成功: ${modelFile.length()} bytes")
             return@withContext
         } catch (_: Exception) {}
 
@@ -202,10 +210,11 @@ class MainActivity : AppCompatActivity() {
         val ext = File(getExternalFilesDir(null), "models/$modelName")
         if (ext.exists()) {
             ext.copyTo(modelFile)
+            Log.d(TAG, "从外部存储复制模型成功")
             return@withContext
         }
 
-        // 3. Download from HuggingFace
+        // 3. Download from HuggingFace mirror
         withContext(Dispatchers.Main) {
             binding.tvStatus.text = "📥 正在下载模型 (142MB)，请等待..."
         }
@@ -241,6 +250,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             conn.disconnect()
+            Log.d(TAG, "模型下载完成: ${modelFile.length()} bytes")
         } catch (e: Exception) {
             modelFile.delete()
             throw IllegalStateException("模型下载失败: ${e.message}\n请手动放到: ${ext.absolutePath}")
@@ -260,13 +270,14 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "语音模型尚未加载完成，请稍候", Toast.LENGTH_SHORT).show()
             return
         }
-        Log.d(TAG, "startRealtimeTranslation 调用")
+        Log.d(TAG, "🎙️ startRealtimeTranslation")
         sourceBuffer.clear()
         targetBuffer.clear()
         lastSourceLang = ""
         chunkCount = 0
         skipCount = 0
         isProcessing = false
+        processingStartTime = 0L
 
         binding.tvSourceText.text = ""
         binding.tvTargetText.text = ""
@@ -276,43 +287,84 @@ class MainActivity : AppCompatActivity() {
         setRecordingUI(true)
 
         recorder.startRecording(chunkDurationMs = 2000, overlapMs = 500) { audioChunk ->
-            if (isProcessing) return@startRecording
+            // ✅ FIX: 强制重置卡死的 isProcessing
+            val now = System.currentTimeMillis()
+            if (isProcessing) {
+                if (processingStartTime > 0 && (now - processingStartTime) > MAX_PROCESSING_SECONDS * 1000) {
+                    Log.w(TAG, "⚠️ isProcessing 卡死超过 ${MAX_PROCESSING_SECONDS}s，强制重置！")
+                    isProcessing = false
+                } else {
+                    return@startRecording
+                }
+            }
 
             chunkCount++
+            Log.d(TAG, "📥 收到 chunk #$chunkCount (size=${audioChunk.size})")
 
             lifecycleScope.launch {
                 isProcessing = true
+                processingStartTime = System.currentTimeMillis()
                 try {
                     processChunk(audioChunk)
+                } catch (e: Exception) {
+                    Log.e(TAG, "processChunk 异常: ${e.message}", e)
+                    runOnUiThread {
+                        binding.tvStatus.text = "🎙️ 监听中... (处理异常: ${e.message?.take(30)})"
+                    }
                 } finally {
                     isProcessing = false
+                    processingStartTime = 0L
                 }
             }
         }
     }
 
     private suspend fun processChunk(audioChunk: FloatArray) {
-        binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
-        Log.d(TAG, "processChunk #$chunkCount, audioChunk.size=${audioChunk.size}")
+        Log.d(TAG, "🔄 processChunk #$chunkCount, audioChunk.size=${audioChunk.size}")
+        withContext(Dispatchers.Main) {
+            binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
+        }
 
+        // ✅ FIX: Whisper 转写，带超时保护
+        // 注意：withTimeout 只能取消协程，不能中断阻塞的 JNI 调用
+        // 所以这里用 withTimeoutOrNull + 异常处理双保险
         val result = try {
-            withTimeout(30_000) {
-                withContext(Dispatchers.Default) {
+            withContext(Dispatchers.Default) {
+                withTimeoutOrNull(WHISPER_TIMEOUT_MS) {
                     whisper.transcribeAuto(audioChunk)
                 }
             }
         } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "Whisper 转写超时 (15s)，跳过此 chunk")
-            binding.tvStatus.text = "🎙️ 监听中... (转写超时，已跳过)"
+            Log.e(TAG, "❌ Whisper 转写超时 (${WHISPER_TIMEOUT_MS}ms)，跳过此 chunk")
+            withContext(Dispatchers.Main) {
+                binding.tvStatus.text = "🎙️ 监听中... (转写超时，已跳过)"
+            }
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Whisper 转写异常: ${e.message}", e)
+            withContext(Dispatchers.Main) {
+                binding.tvStatus.text = "🎙️ 监听中... (转写异常: ${e.message?.take(30)})"
+            }
             return
         }
 
-        Log.d(TAG, "transcribeAuto 返回: text='${result.text}', lang='${result.language}', isLao=${result.isLao}")
+        // result 为 null 说明超时了
+        if (result == null) {
+            Log.e(TAG, "❌ Whisper 转写返回 null（超时）")
+            withContext(Dispatchers.Main) {
+                binding.tvStatus.text = "🎙️ 监听中... (转写超时)"
+            }
+            return
+        }
+
+        Log.d(TAG, "transcribeAuto: text='${result.text}', lang='${result.language}', isLao=${result.isLao}")
 
         if (result.text.isBlank()) {
-            Log.w(TAG, "transcribeAuto 返回空文本! chunk #$chunkCount")
             skipCount++
-            binding.tvStatus.text = "🎙️ 监听中... (有效 #$chunkCount, 跳过 #$skipCount)"
+            Log.w(TAG, "转写返回空文本 (有效 #$chunkCount, 跳过 #$skipCount)")
+            withContext(Dispatchers.Main) {
+                binding.tvStatus.text = "🎙️ 监听中... (有效 #$chunkCount, 跳过 #$skipCount)"
+            }
             return
         }
 
@@ -321,13 +373,15 @@ class MainActivity : AppCompatActivity() {
         val targetLangCode = targetLang(result.language)
         val targetLangName = langName(targetLangCode)
 
-        binding.tvDetectedLang.text = "🌐 $sourceLangName → $targetLangName"
-        binding.tvSourceLabel.text = "原文 ($sourceLangName)"
-        binding.tvTargetLabel.text = "译文 ($targetLangName)"
+        withContext(Dispatchers.Main) {
+            binding.tvDetectedLang.text = "🌐 $sourceLangName → $targetLangName"
+            binding.tvSourceLabel.text = "原文 ($sourceLangName)"
+            binding.tvTargetLabel.text = "译文 ($targetLangName)"
+            sourceBuffer.append(result.text)
+            binding.tvSourceText.text = sourceBuffer.toString()
+        }
 
-        sourceBuffer.append(result.text)
-        binding.tvSourceText.text = sourceBuffer.toString()
-
+        // 翻译
         val dir = if (result.isLao)
             TranslationManager.TranslateDirection.LaoToChinese
         else
@@ -339,31 +393,37 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "翻译失败: ${e.message}", e)
-            null
+            withContext(Dispatchers.Main) {
+                binding.tvStatus.text = "⚠️ 识别到: \"${result.text.take(20)}\" 但翻译失败"
+            }
+            return
         }
 
-        Log.d(TAG, "翻译结果: '$translated', 模式=${translator.getCurrentMode()}")
-
         if (!translated.isNullOrBlank()) {
-            targetBuffer.append(translated)
-            binding.tvTargetText.text = targetBuffer.toString()
+            withContext(Dispatchers.Main) {
+                targetBuffer.append(translated)
+                binding.tvTargetText.text = targetBuffer.toString()
+                binding.tvStatus.text = "✅ 已翻译 #$chunkCount [MyMemory]"
 
-            if (autoSpeak) {
-                withContext(Dispatchers.Main) {
+                if (autoSpeak) {
                     tts.speak(translated, targetLangCode)
                 }
             }
-            binding.tvStatus.text = "✅ 已翻译 (有效 #$chunkCount) [${if (translator.getCurrentMode() == TranslationManager.TranslateMode.MYMEMORY_LAO) "在线·老挝语" else "离线·泰语"}]"
         } else {
-            Log.e(TAG, "翻译返回空! 文本='${result.text}', 方向=$dir, 模式=${translator.getCurrentMode()}")
-            binding.tvStatus.text = "⚠️ 识别到: \"${result.text.take(20)}\" 但翻译失败 (模式:${translator.getCurrentMode()})"
+            Log.e(TAG, "翻译返回空! text='${result.text}'")
+            withContext(Dispatchers.Main) {
+                binding.tvStatus.text = "⚠️ 识别到: \"${result.text.take(20)}\" 但翻译返回空"
+            }
         }
     }
 
     private fun stopRecording() {
         recorder.stopRecording()
+        isProcessing = false
+        processingStartTime = 0L
         setRecordingUI(false)
         binding.tvStatus.text = "⏹ 已停止，点击麦克风继续"
+        Log.d(TAG, "⏹ 录音已停止")
     }
 
     private fun setRecordingUI(recording: Boolean) {

@@ -11,8 +11,8 @@ android {
         applicationId = "com.lao.translator"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -20,6 +20,14 @@ android {
 
         aaptOptions {
             noCompress += listOf("bin")
+        }
+
+        // ✅ FIX: 确保 release 版本也保留日志（方便排查）
+        buildTypes {
+            release {
+                isMinifyEnabled = false
+                isShrinkResources = false
+            }
         }
     }
 
@@ -54,6 +62,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
-    // ML Kit Translation (bundled zh↔th model for offline fallback)
-    implementation("com.google.mlkit:translate:17.0.2")
+    // ✅ FIX: 移除 ML Kit（在中国大陆连接 Google 服务超时）
+    // 翻译改用纯 MyMemory API
+    // implementation("com.google.mlkit:translate:17.0.2")
 }

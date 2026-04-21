@@ -17,9 +17,9 @@ class WhisperManager(private val context: Context) {
             try {
                 System.loadLibrary("whisper_jni")
                 nativeLoaded = true
-                Log.d(TAG, "whisper_jni loaded successfully")
+                Log.d(TAG, "✅ whisper_jni loaded successfully")
             } catch (e: UnsatisfiedLinkError) {
-                Log.e(TAG, "Failed to load whisper_jni: ${e.message}")
+                Log.e(TAG, "❌ Failed to load whisper_jni: ${e.message}")
                 nativeLoaded = false
             }
         }
@@ -40,16 +40,15 @@ class WhisperManager(private val context: Context) {
     private external fun nativeTranscribe(audioData: FloatArray, nSamples: Int, language: String): String
     private external fun nativeRelease()
 
-    suspend fun init(modelName: String = "ggml-small.bin"): Boolean = withContext(Dispatchers.IO) {
+    suspend fun init(modelName: String = "ggml-base.bin"): Boolean = withContext(Dispatchers.IO) {
         if (!nativeLoaded) {
             Log.e(TAG, "nativeLoaded=false, 无法加载 whisper_jni")
-            throw IllegalStateException("Native 库加载失败，设备可能不支持此架构")
+            throw IllegalStateException("Native 库加载失败，设备可能不支持此架构 (arm64-v8a)")
         }
         val modelFile = File(context.filesDir, "models/$modelName")
         Log.d(TAG, "模型路径: ${modelFile.absolutePath}, 存在: ${modelFile.exists()}, 大小: ${modelFile.length()} bytes")
 
         if (!modelFile.exists()) {
-            // 尝试从 assets 复制
             val modelDir = File(context.filesDir, "models")
             modelDir.mkdirs()
             try {
@@ -72,7 +71,6 @@ class WhisperManager(private val context: Context) {
             }
         }
 
-        // 校验模型文件大小（ggml-base.bin 应该约 142MB）
         val fileSize = modelFile.length()
         if (fileSize < 50_000_000) {
             Log.e(TAG, "模型文件过小 ($fileSize bytes)，可能下载不完整")
@@ -98,9 +96,15 @@ class WhisperManager(private val context: Context) {
     suspend fun warmup() {
         if (!isInitialized || warmedUp) return
         withContext(Dispatchers.Default) {
+            Log.d(TAG, "开始 warmup...")
             val silence = FloatArray(SAMPLE_RATE) { 0.001f }
-            nativeTranscribe(silence, silence.size, "")
-            warmedUp = true
+            try {
+                nativeTranscribe(silence, silence.size, "")
+                warmedUp = true
+                Log.d(TAG, "warmup 完成")
+            } catch (e: Exception) {
+                Log.w(TAG, "warmup 失败（不影响正常使用）: ${e.message}")
+            }
         }
     }
 
@@ -111,9 +115,19 @@ class WhisperManager(private val context: Context) {
                 return@withContext TranscribeResult("", "")
             }
 
-            Log.d(TAG, "开始转写, samples.size=${samples.size}, 能量=${calculateEnergy(samples)}")
-            val raw = nativeTranscribe(samples, samples.size, "")
-            Log.d(TAG, "nativeTranscribe 返回: '$raw' (长度=${raw.length})")
+            val energy = calculateEnergy(samples)
+            Log.d(TAG, "开始转写, samples.size=${samples.size}, 能量=$energy")
+            val t0 = System.currentTimeMillis()
+
+            val raw = try {
+                nativeTranscribe(samples, samples.size, "")
+            } catch (e: Exception) {
+                Log.e(TAG, "nativeTranscribe 异常: ${e.message}", e)
+                return@withContext TranscribeResult("", "")
+            }
+
+            val elapsed = System.currentTimeMillis() - t0
+            Log.d(TAG, "nativeTranscribe 返回: '$raw' (长度=${raw.length}, 耗时=${elapsed}ms)")
 
             val lines = raw.split("\n", limit = 2)
             val detectedLang = if (lines.isNotEmpty() && lines[0].startsWith("LANG:")) {
@@ -130,6 +144,7 @@ class WhisperManager(private val context: Context) {
                 else -> detectedLang
             }
 
+            Log.d(TAG, "转写结果: text='$text', lang='$langCode' (原始='$detectedLang')")
             TranscribeResult(text, langCode)
         }
 
@@ -147,11 +162,14 @@ class WhisperManager(private val context: Context) {
         return energy / samples.size
     }
 
+    fun isInitialized(): Boolean = isInitialized
+
     fun release() {
         if (isInitialized) {
             nativeRelease()
             isInitialized = false
             warmedUp = false
+            Log.d(TAG, "Whisper 已释放")
         }
     }
 }
