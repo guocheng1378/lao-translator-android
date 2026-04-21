@@ -41,8 +41,7 @@ Java_com_lao_translator_stt_WhisperManager_nativeInit(
     g_ctx = whisper_init_from_file(path);
 
     if (g_ctx) {
-        LOGI("nativeInit: OK, n_mels=%d, n_langs=%d",
-             whisper_model_n_mels(g_ctx), whisper_lang_id(g_ctx));
+        LOGI("nativeInit: OK, n_mels=%d", whisper_model_n_mels(g_ctx));
     } else {
         LOGE("nativeInit: FAILED for: %s", path);
     }
@@ -76,7 +75,6 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     const char *lang = env->GetStringUTFChars(language, nullptr);
     bool auto_detect = (lang == nullptr || lang[0] == '\0');
 
-    // ✅ FIX: 动态线程数 — 取 CPU 核心数，最多 4 个，避免低端设备卡死
     unsigned int n_cores = std::thread::hardware_concurrency();
     int n_threads = (n_cores > 0) ? std::min((int)n_cores, 4) : 2;
     LOGI("nativeTranscribe: samples=%d, threads=%d (cores=%u), auto=%d",
@@ -95,9 +93,6 @@ Java_com_lao_translator_stt_WhisperManager_nativeTranscribe(
     params.detect_language = true;
     params.greedy.best_of = 1;
     params.token_timestamps = false;
-
-    // ✅ FIX: 加入 token 级别的日志回调，便于调试
-    // params.new_segment_callback = nullptr; // 保持默认
 
     LOGI("whisper_full: starting transcription...");
     int ret = whisper_full(g_ctx, params, samples, n_samples);
