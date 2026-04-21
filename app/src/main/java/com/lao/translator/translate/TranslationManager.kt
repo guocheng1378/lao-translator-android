@@ -19,6 +19,7 @@ import java.net.URLEncoder
  * ✅ FIX: 移除 ML Kit 依赖（在中国大陆连接 Google 服务超时）
  * 改为纯 MyMemory API（免费，支持 zh↔lo）
  * ✅ FIX: 加 LRU 缓存 + 限频，避免撞 MyMemory 免费额度
+ * ✅ FIX: translate() 失败时自动重试 init，不再因 init 阶段网络问题导致永久不可用
  */
 class TranslationManager(private val context: Context) {
 
@@ -39,6 +40,7 @@ class TranslationManager(private val context: Context) {
     }
 
     private var _isReady = false
+    private var _initAttempted = false
 
     // ✅ FIX: 简单 LRU 缓存
     private val cache = object : LinkedHashMap<String, String>(CACHE_MAX_SIZE, 0.75f, true) {
@@ -51,6 +53,7 @@ class TranslationManager(private val context: Context) {
 
     suspend fun init() = withContext(Dispatchers.IO) {
         _isReady = false
+        _initAttempted = true
 
         if (isNetworkAvailable()) {
             try {
@@ -79,27 +82,41 @@ class TranslationManager(private val context: Context) {
         else -> TranslateMode.UNAVAILABLE
     }
 
+    /**
+     * ✅ FIX: 翻译失败时自动重试初始化，而不是直接抛异常
+     * 避免 init 阶段网络不好导致永久不可用
+     */
     suspend fun translate(text: String, direction: TranslateDirection): String {
         if (text.isBlank()) return ""
-
-        if (!_isReady) {
-            throw IllegalStateException("翻译服务未就绪（无网络或 MyMemory 不可用）")
-        }
-
-        if (!isNetworkAvailable()) {
-            throw IllegalStateException("无网络连接，无法翻译")
-        }
 
         val langPair = when (direction) {
             TranslateDirection.LaoToChinese -> "lo|zh-CN"
             TranslateDirection.ChineseToLao -> "zh-CN|lo"
         }
 
-        // ✅ FIX: 查缓存
+        // 查缓存
         val cacheKey = "$langPair|$text"
         cache[cacheKey]?.let {
             Log.d(TAG, "缓存命中: '${text.take(20)}' -> '$it'")
             return it
+        }
+
+        // ✅ FIX: 如果 init 失败过，这里自动重试一次
+        if (!_isReady) {
+            Log.d(TAG, "翻译服务未就绪，尝试重新初始化...")
+            try {
+                init()
+            } catch (e: Exception) {
+                Log.e(TAG, "重新初始化失败: ${e.message}")
+            }
+        }
+
+        if (!_isReady) {
+            throw IllegalStateException("翻译服务不可用（网络不通或 MyMemory API 不可达）")
+        }
+
+        if (!isNetworkAvailable()) {
+            throw IllegalStateException("无网络连接，无法翻译")
         }
 
         return translateViaMyMemory(text, langPair).also { result ->

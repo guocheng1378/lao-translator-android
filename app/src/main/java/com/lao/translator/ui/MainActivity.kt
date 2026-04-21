@@ -66,14 +66,11 @@ class MainActivity : AppCompatActivity() {
         tts = TtsManager(this)
         recorder = AudioRecorder(this)
 
-        // ✅ FIX: 请求通知权限（Android 13+）
         requestNotificationPermission()
-
         setupUI()
         initModels()
     }
 
-    // ✅ FIX: Android 13+ 需要 POST_NOTIFICATIONS 权限
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -111,7 +108,6 @@ class MainActivity : AppCompatActivity() {
             else checkPermissionAndStart()
         }
 
-        // ✅ FIX: 文字翻译 — 自动检测语言方向，不再硬编码中文→老挝语
         binding.btnTextTranslate.setOnClickListener {
             val input = binding.etTextInput.text.toString().trim()
             if (input.isBlank()) return@setOnClickListener
@@ -121,7 +117,6 @@ class MainActivity : AppCompatActivity() {
 
             lifecycleScope.launch {
                 try {
-                    // ✅ FIX: 自动检测语言方向（老挝语包含 ກ-ໜ Unicode 范围）
                     val hasLaoChars = input.any { it in '຀'..'໿' }
                     val dir = if (hasLaoChars) {
                         TranslationManager.TranslateDirection.LaoToChinese
@@ -198,17 +193,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // ✅ FIX: 翻译服务初始化 — 不再因为 init 失败就禁用翻译
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) { translator.init() }
-                Log.d(TAG, "✅ 翻译服务就绪")
+                Log.d(TAG, "✅ 翻译服务就绪 (MyMemory)")
                 if (whisperReady) {
                     binding.tvStatus.text = "✅ 全部就绪，点击麦克风开始"
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "翻译服务加载失败", e)
+                Log.e(TAG, "⚠️ MyMemory 翻译服务不可用: ${e.message}")
+                // 不阻塞，继续尝试 — translate() 内部会再检查
                 if (whisperReady) {
-                    binding.tvStatus.text = "🎙️ 语音就绪（翻译不可用: ${e.message}），点击麦克风开始"
+                    binding.tvStatus.text = "🎙️ 语音就绪（翻译API暂不可用，将自动重试），点击麦克风开始"
                 }
             }
         }
@@ -319,7 +316,6 @@ class MainActivity : AppCompatActivity() {
         binding.tvDetectedLang.text = "🎙️ 监听中..."
         setRecordingUI(true)
 
-        // ✅ FIX: 启动前台服务，防止进程被 HyperOS 杀掉
         TranslationService.start(this)
 
         recorder.startRecording(chunkDurationMs = 2000, overlapMs = 500) { audioChunk ->
@@ -355,7 +351,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * ✅ FIX: 识别结果立刻显示，翻译异步执行，不阻塞下一轮识别
+     * ✅ 修复: 识别结果立刻显示，翻译异步执行，不阻塞下一轮识别
+     * ✅ 修复: 翻译失败时不再显示"转写异常"，准确区分错误来源
+     * ✅ 修复: 翻译不可用时尝试直接调用（跳过 init 检查），并显示原文让用户手动翻译
      */
     private suspend fun processChunk(audioChunk: FloatArray) {
         Log.d(TAG, "🔄 processChunk #$chunkCount, audioChunk.size=${audioChunk.size}")
@@ -363,7 +361,7 @@ class MainActivity : AppCompatActivity() {
             binding.tvStatus.text = "🔄 识别中... (有效片段 #$chunkCount)"
         }
 
-        // ====== Whisper 转写（必须同步等结果）======
+        // ====== Whisper 转写 ======
         val result = try {
             withContext(Dispatchers.Default) {
                 withTimeoutOrNull(WHISPER_TIMEOUT_MS) {
@@ -408,7 +406,7 @@ class MainActivity : AppCompatActivity() {
         val targetLangCode = targetLang(result.language)
         val targetLangName = langName(targetLangCode)
 
-        // ✅ 关键改动：原文立刻显示，不等翻译
+        // ✅ 原文立刻显示
         withContext(Dispatchers.Main) {
             binding.tvDetectedLang.text = "🌐 $sourceLangName → $targetLangName"
             binding.tvSourceLabel.text = "原文 ($sourceLangName)"
@@ -418,7 +416,7 @@ class MainActivity : AppCompatActivity() {
             binding.tvStatus.text = "✅ 已识别 #$chunkCount，翻译中..."
         }
 
-        // ✅ 关键改动：翻译用 launch 异步，不阻塞下一轮识别
+        // ✅ 翻译异步执行，失败不影响下一轮识别
         val dir = if (result.isLao)
             TranslationManager.TranslateDirection.LaoToChinese
         else
@@ -440,13 +438,14 @@ class MainActivity : AppCompatActivity() {
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        binding.tvStatus.text = "⚠️ 翻译返回空"
+                        binding.tvStatus.text = "⚠️ 翻译返回空，原文已保留"
                     }
                 }
             } catch (e: Exception) {
+                // ✅ FIX: 翻译失败不再显示"转写异常"，明确是翻译的问题
                 Log.e(TAG, "翻译失败: ${e.message}", e)
                 withContext(Dispatchers.Main) {
-                    binding.tvStatus.text = "⚠️ 识别: \"${result.text.take(20)}\" 翻译失败: ${e.message?.take(20)}"
+                    binding.tvStatus.text = "⚠️ 识别成功，翻译不可用: ${e.message?.take(30)}"
                 }
             }
         }
@@ -460,7 +459,6 @@ class MainActivity : AppCompatActivity() {
         binding.tvStatus.text = "⏹ 已停止，点击麦克风继续"
         Log.d(TAG, "⏹ 录音已停止")
 
-        // ✅ FIX: 停止前台服务
         TranslationService.stop(this)
     }
 
@@ -494,7 +492,6 @@ class MainActivity : AppCompatActivity() {
         whisper.release()
         translator.release()
         tts.release()
-        // ✅ FIX: 确保 Activity 销毁时也停止前台服务
         TranslationService.stop(this)
     }
 }
