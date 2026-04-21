@@ -4,7 +4,12 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.Translation
+import com.google.mlkit.nl.translate.Translator
+import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -16,16 +21,13 @@ import java.net.URLEncoder
 /**
  * 双向翻译管理器：老挝语 ↔ 中文
  *
- * ✅ FIX: 移除 ML Kit 依赖（在中国大陆连接 Google 服务超时）
- * 改为纯 MyMemory API（免费，支持 zh↔lo）
- * ✅ FIX: 加 LRU 缓存 + 限频，避免撞 MyMemory 免费额度
- * ✅ FIX: translate() 失败时自动重试 init，不再因 init 阶段网络问题导致永久不可用
+ * 主翻译: ML Kit（离线，模型下载后完全本地运行）
+ * 兜底翻译: MyMemory API（在线，ML Kit 不可用时启用）
  */
 class TranslationManager(private val context: Context) {
 
     companion object {
         private const val TAG = "TranslationManager"
-        // ✅ FIX: 最大缓存条目数
         private const val CACHE_MAX_SIZE = 200
     }
 
@@ -35,56 +37,130 @@ class TranslationManager(private val context: Context) {
     }
 
     enum class TranslateMode {
-        MYMEMORY_LAO,    // 在线，真正的 zh↔lo
-        UNAVAILABLE       // 不可用
+        MLKIT,       // ML Kit 离线
+        MYMEMORY,    // MyMemory 在线
+        UNAVAILABLE
     }
 
-    private var _isReady = false
+    // ML Kit translators
+    private var mlKitLaoToZh: Translator? = null
+    private var mlKitZhToLao: Translator? = null
+    private var mlKitReady = false
+
+    private var _myMemoryReady = false
     private var _initAttempted = false
 
-    // ✅ FIX: 简单 LRU 缓存
+    // LRU 缓存
     private val cache = object : LinkedHashMap<String, String>(CACHE_MAX_SIZE, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
             return size > CACHE_MAX_SIZE
         }
     }
 
-    val isReady: Boolean get() = _isReady
+    val isReady: Boolean get() = mlKitReady || _myMemoryReady
 
+    /**
+     * 初始化：尝试 ML Kit，失败则尝试 MyMemory
+     */
     suspend fun init() = withContext(Dispatchers.IO) {
-        _isReady = false
         _initAttempted = true
 
-        if (isNetworkAvailable()) {
-            try {
-                val test = translateMyMemory("hello", "en|zh-CN")
-                if (test.isNotBlank()) {
-                    Log.d(TAG, "✅ MyMemory 连通测试通过: 'hello' -> '$test'")
-                    _isReady = true
-                } else {
-                    Log.w(TAG, "MyMemory 连通测试返回空")
-                    _isReady = false
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "MyMemory 连通测试失败: ${e.message}")
-                _isReady = false
-            }
-        } else {
-            Log.w(TAG, "无网络连接")
-            _isReady = false
+        // 尝试 ML Kit
+        try {
+            initMlKit()
+        } catch (e: Exception) {
+            Log.w(TAG, "ML Kit 初始化失败: ${e.message}")
+            mlKitReady = false
         }
 
-        Log.d(TAG, "TranslationManager 就绪: $_isReady, network=${isNetworkAvailable()}")
+        // ML Kit 不可用时尝试 MyMemory
+        if (!mlKitReady) {
+            try {
+                initMyMemory()
+            } catch (e: Exception) {
+                Log.w(TAG, "MyMemory 初始化失败: ${e.message}")
+                _myMemoryReady = false
+            }
+        }
+
+        Log.d(TAG, "TranslationManager 就绪: mlKit=$mlKitReady, myMemory=$_myMemoryReady")
+    }
+
+    /**
+     * 初始化 ML Kit 翻译器（离线）
+     * 首次使用需联网下载语言模型，之后完全离线
+     */
+    private suspend fun initMlKit() = withContext(Dispatchers.IO) {
+        Log.d(TAG, "初始化 ML Kit 翻译器...")
+
+        val loLang = TranslateLanguage.LAO
+        val zhLang = TranslateLanguage.CHINESE
+
+        if (loLang == null || zhLang == null) {
+            Log.e(TAG, "ML Kit 不支持老挝语或中文")
+            return@withContext
+        }
+
+        // 创建翻译器
+        val loToZhOptions = TranslatorOptions.Builder()
+            .setSourceLanguage(loLang)
+            .setTargetLanguage(zhLang)
+            .build()
+        mlKitLaoToZh = Translation.getClient(loToZhOptions)
+
+        val zhToLoOptions = TranslatorOptions.Builder()
+            .setSourceLanguage(zhLang)
+            .setTargetLanguage(loLang)
+            .build()
+        mlKitZhToLao = Translation.getClient(zhToLoOptions)
+
+        // 下载语言模型（首次需要网络，之后离线可用）
+        Log.d(TAG, "下载 ML Kit 语言模型（首次约30MB）...")
+        try {
+            mlKitLaoToZh?.downloadModelIfNeeded()?.await()
+            mlKitZhToLao?.downloadModelIfNeeded()?.await()
+            mlKitReady = true
+            Log.d(TAG, "✅ ML Kit 翻译器就绪（离线可用）")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ ML Kit 模型下载失败: ${e.message}")
+            mlKitLaoToZh?.close()
+            mlKitZhToLao?.close()
+            mlKitLaoToZh = null
+            mlKitZhToLao = null
+            throw e
+        }
+    }
+
+    /**
+     * 初始化 MyMemory API（在线翻译兜底）
+     */
+    private suspend fun initMyMemory() = withContext(Dispatchers.IO) {
+        _myMemoryReady = false
+
+        if (!isNetworkAvailable()) {
+            Log.w(TAG, "无网络连接，跳过 MyMemory")
+            return@withContext
+        }
+
+        try {
+            val test = translateMyMemory("hello", "en|zh-CN")
+            if (test.isNotBlank()) {
+                Log.d(TAG, "✅ MyMemory 连通测试通过")
+                _myMemoryReady = true
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "MyMemory 连通测试失败: ${e.message}")
+        }
     }
 
     fun getCurrentMode(): TranslateMode = when {
-        isNetworkAvailable() -> TranslateMode.MYMEMORY_LAO
+        mlKitReady -> TranslateMode.MLKIT
+        _myMemoryReady -> TranslateMode.MYMEMORY
         else -> TranslateMode.UNAVAILABLE
     }
 
     /**
-     * ✅ FIX: 翻译失败时自动重试初始化，而不是直接抛异常
-     * 避免 init 阶段网络不好导致永久不可用
+     * 翻译：优先 ML Kit，失败自动降级 MyMemory
      */
     suspend fun translate(text: String, direction: TranslateDirection): String {
         if (text.isBlank()) return ""
@@ -101,50 +177,66 @@ class TranslationManager(private val context: Context) {
             return it
         }
 
-        // ✅ FIX: 如果 init 失败过，这里自动重试一次
-        if (!_isReady) {
+        // 如果都没就绪，尝试重新初始化
+        if (!mlKitReady && !_myMemoryReady) {
             Log.d(TAG, "翻译服务未就绪，尝试重新初始化...")
+            try { init() } catch (_: Exception) {}
+        }
+
+        if (!mlKitReady && !_myMemoryReady) {
+            throw IllegalStateException("翻译服务不可用（ML Kit 模型未下载，MyMemory 也不通）")
+        }
+
+        // 优先 ML Kit
+        if (mlKitReady) {
             try {
-                init()
+                val result = translateMlKit(text, direction)
+                if (result.isNotBlank()) {
+                    synchronized(cache) { cache[cacheKey] = result }
+                    return result
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "重新初始化失败: ${e.message}")
+                Log.e(TAG, "ML Kit 翻译失败，降级到 MyMemory: ${e.message}")
             }
         }
 
-        if (!_isReady) {
-            throw IllegalStateException("翻译服务不可用（网络不通或 MyMemory API 不可达）")
-        }
-
-        if (!isNetworkAvailable()) {
-            throw IllegalStateException("无网络连接，无法翻译")
-        }
-
-        return translateViaMyMemory(text, langPair).also { result ->
-            if (result.isNotBlank()) {
-                synchronized(cache) { cache[cacheKey] = result }
+        // 兜底 MyMemory
+        if (_myMemoryReady && isNetworkAvailable()) {
+            try {
+                val result = translateMyMemory(text, langPair)
+                if (result.isNotBlank()) {
+                    synchronized(cache) { cache[cacheKey] = result }
+                    return result
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "MyMemory 翻译也失败: ${e.message}")
             }
         }
+
+        throw IllegalStateException("所有翻译方式均失败")
     }
 
-    private suspend fun translateViaMyMemory(text: String, langPair: String): String {
+    /**
+     * ML Kit 离线翻译
+     */
+    private suspend fun translateMlKit(text: String, direction: TranslateDirection): String {
         return withContext(Dispatchers.IO) {
-            val result = translateMyMemory(text, langPair)
-            if (result.isNotBlank()) {
-                Log.d(TAG, "✅ MyMemory 翻译: '$text' -> '$result'")
-                result
-            } else {
-                Log.e(TAG, "❌ MyMemory 返回空: '$text', langPair=$langPair")
-                ""
-            }
+            val translator = when (direction) {
+                TranslateDirection.LaoToChinese -> mlKitLaoToZh
+                TranslateDirection.ChineseToLao -> mlKitZhToLao
+            } ?: throw IllegalStateException("ML Kit 翻译器未初始化")
+
+            val result = translator.translate(text).await()
+            Log.d(TAG, "✅ ML Kit 翻译: '$text' -> '$result'")
+            result
         }
     }
 
+    /**
+     * MyMemory 在线翻译
+     */
     private fun translateMyMemory(text: String, langPair: String): String {
-        // ✅ FIX: 短文本（1-2字符）跳过翻译，减少无意义请求
-        if (text.trim().length <= 2) {
-            Log.d(TAG, "文本过短，跳过翻译: '$text'")
-            return text
-        }
+        if (text.trim().length <= 2) return text
 
         val encoded = URLEncoder.encode(text, "UTF-8")
         val urlStr = "https://api.mymemory.translated.net/get?q=$encoded&langpair=$langPair"
@@ -153,8 +245,8 @@ class TranslationManager(private val context: Context) {
 
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14)")
-        conn.connectTimeout = 15000
-        conn.readTimeout = 20000
+        conn.connectTimeout = 10000
+        conn.readTimeout = 15000
 
         try {
             conn.connect()
@@ -166,15 +258,12 @@ class TranslationManager(private val context: Context) {
             val body = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use {
                 it.readText()
             }
-            Log.d(TAG, "MyMemory 响应: ${body.take(200)}")
             val json = JSONObject(body)
-            val responseData = json.optJSONObject("responseData")
-            val translated = responseData?.optString("translatedText", "") ?: ""
-            val responseStatus = json.optInt("responseStatus", -1)
-            Log.d(TAG, "MyMemory 结果: '$translated', status=$responseStatus")
+            val translated = json.optJSONObject("responseData")?.optString("translatedText", "") ?: ""
+            Log.d(TAG, "✅ MyMemory 翻译: '$text' -> '$translated'")
             return translated
         } catch (e: Exception) {
-            Log.e(TAG, "MyMemory 请求异常: ${e.message}", e)
+            Log.e(TAG, "MyMemory 请求异常: ${e.message}")
             return ""
         } finally {
             conn.disconnect()
@@ -193,7 +282,12 @@ class TranslationManager(private val context: Context) {
     }
 
     fun release() {
-        _isReady = false
+        mlKitLaoToZh?.close()
+        mlKitZhToLao?.close()
+        mlKitLaoToZh = null
+        mlKitZhToLao = null
+        mlKitReady = false
+        _myMemoryReady = false
         synchronized(cache) { cache.clear() }
         Log.d(TAG, "TranslationManager 已释放")
     }
